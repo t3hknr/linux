@@ -25,11 +25,6 @@
 #include "intel_ringbuffer.h"
 
 /* structures required */
-struct drm_i915_mocs_entry {
-	u32 control_value;
-	u16 l3cc_value;
-};
-
 struct drm_i915_mocs_table {
 	u32 size;
 	const struct drm_i915_mocs_entry *table;
@@ -52,6 +47,12 @@ struct drm_i915_mocs_table {
 
 /* Helper defines */
 #define GEN9_NUM_MOCS_ENTRIES	62  /* 62 out of 64 - 63 & 64 are reserved. */
+
+/* Last 8 entries (54:61) are reserved for render */
+#define GEN9_NUM_MOCS_RENDER_RESERVED	8
+#define GEN9_MOCS_RENDER_RESERVED_START	54
+#define GEN9_MOCS_RENDER_RESERVED_END	(GEN9_MOCS_RENDER_RESERVED_START + \
+					 GEN9_NUM_MOCS_RENDER_RESERVED)
 
 /* (e)LLC caching options */
 #define LE_PAGETABLE		0
@@ -451,6 +452,92 @@ int intel_rcs_context_init_mocs(struct drm_i915_gem_request *req)
 		if (ret)
 			return ret;
 	}
+
+	return 0;
+}
+
+static int emit_update_mocs_entry(struct drm_i915_gem_request *req,
+				  struct drm_i915_mocs_entry entry)
+{
+	struct intel_ring *ring = req->ring;
+	struct intel_engine_cs *engine = req->engine;
+	u32 l3cc_reg_value = entry.l3cc_value;
+	u32 mask = ((1 << 16) - 1);
+	int ret;
+
+	if (entry.index % 2)
+		l3cc_reg_value <<= 16;
+	else
+		mask <<= 16;
+
+	ret = intel_ring_begin(req, 26);
+	if (ret)
+		return ret;
+
+	intel_ring_emit(ring, MI_LOAD_REGISTER_REG);
+	intel_ring_emit_reg(ring, GEN9_LNCFCMOCS(entry.index / 2));
+	intel_ring_emit_reg(ring, HSW_CS_GPR(0));
+	intel_ring_emit(ring, MI_NOOP);
+
+	intel_ring_emit(ring, MI_LOAD_REGISTER_IMM(3));
+	intel_ring_emit_reg(ring, mocs_register(engine->id, entry.index));
+	intel_ring_emit(ring, entry.control_value);
+	intel_ring_emit_reg(ring, HSW_CS_GPR(1));
+	intel_ring_emit(ring, mask);
+	intel_ring_emit_reg(ring, HSW_CS_GPR(2));
+	intel_ring_emit(ring, l3cc_reg_value);
+	intel_ring_emit(ring, MI_NOOP);
+
+	intel_ring_emit(ring, MI_MATH(9));
+	intel_ring_emit(ring, MI_MATH_LOAD(MI_MATH_REG_SRCA, MI_MATH_REG(0)));
+	intel_ring_emit(ring, MI_MATH_LOAD(MI_MATH_REG_SRCB, MI_MATH_REG(1)));
+	intel_ring_emit(ring, MI_MATH_AND);
+	intel_ring_emit(ring, MI_MATH_STORE(MI_MATH_REG(3), MI_MATH_REG_ACCU));
+	intel_ring_emit(ring, MI_MATH_LOAD(MI_MATH_REG_SRCA, MI_MATH_REG(2)));
+	intel_ring_emit(ring, MI_MATH_LOAD(MI_MATH_REG_SRCB, MI_MATH_REG(3)));
+	intel_ring_emit(ring, MI_MATH_OR);
+	intel_ring_emit(ring, MI_MATH_STORE(MI_MATH_REG(4), MI_MATH_REG_ACCU));
+	intel_ring_emit(ring, MI_NOOP);
+
+	intel_ring_emit(ring, MI_LOAD_REGISTER_REG);
+	intel_ring_emit_reg(ring, HSW_CS_GPR(4));
+	intel_ring_emit_reg(ring, GEN9_LNCFCMOCS(entry.index / 2));
+	intel_ring_emit(ring, MI_NOOP);
+
+	intel_ring_advance(ring);
+
+	return 0;
+}
+
+int intel_rcs_context_update_mocs(struct drm_i915_private *dev_priv,
+				  struct i915_gem_context *ctx,
+				  u64 raw_value)
+{
+	struct drm_i915_gem_request *request;
+	struct intel_engine_cs *engine = dev_priv->engine[RCS];
+	struct drm_i915_mocs_entry entry = { .raw_value = raw_value };
+	int ret;
+
+	if (INTEL_GEN(dev_priv) < 9)
+		return -ENODEV;
+
+	if (entry.index < GEN9_MOCS_RENDER_RESERVED_START ||
+	    entry.index >= GEN9_MOCS_RENDER_RESERVED_END)
+		return -EINVAL;
+
+	request = i915_gem_request_alloc(engine, ctx);
+	if (IS_ERR(request)) {
+		ret = PTR_ERR(request);
+		return ret;
+	}
+
+	ret = emit_update_mocs_entry(request, entry);
+	if (ret) {
+		i915_add_request_no_flush(request);
+		return ret;
+	}
+
+	i915_add_request_no_flush(request);
 
 	return 0;
 }

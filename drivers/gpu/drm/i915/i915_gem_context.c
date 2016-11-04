@@ -89,6 +89,7 @@
 #include <drm/i915_drm.h>
 #include "i915_drv.h"
 #include "i915_trace.h"
+#include "intel_mocs.h"
 
 #define ALL_L3_SLICES(dev) (1 << NUM_L3_SLICES(dev)) - 1
 
@@ -1154,6 +1155,14 @@ int i915_gem_context_setparam_ioctl(struct drm_device *dev, void *data,
 			else
 				ctx->flags &= ~CONTEXT_NO_ERROR_CAPTURE;
 		}
+		break;
+	case I915_CONTEXT_PARAM_GEN9_RENDER_MOCS:
+		if (args->size)
+			ret = -EINVAL;
+		else
+			ret = intel_rcs_context_update_mocs(to_i915(dev),
+							    ctx,
+							    args->value);
 		break;
 	default:
 		ret = -EINVAL;

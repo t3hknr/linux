@@ -1219,7 +1219,20 @@ struct drm_i915_gem_context_param {
 #define I915_CONTEXT_PARAM_NO_ZEROMAP	0x2
 #define I915_CONTEXT_PARAM_GTT_SIZE	0x3
 #define I915_CONTEXT_PARAM_NO_ERROR_CAPTURE	0x4
+#define I915_CONTEXT_PARAM_GEN9_RENDER_MOCS	0x5
 	__u64 value;
+};
+
+struct drm_i915_mocs_entry {
+	union {
+		struct {
+			__u32 control_value;
+			__u16 l3cc_value;
+			__u8  index;
+			__u8  rsvd;
+		};
+		__u64 raw_value;
+	};
 };
 
 #if defined(__cplusplus)
