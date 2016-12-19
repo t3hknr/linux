@@ -66,6 +66,7 @@ struct i915_params i915 __read_mostly = {
 	.enable_dpcd_backlight = -1,
 	.enable_gvt = false,
 	.enable_dbc = true,
+	.enable_preemption = 0,
 };
 
 module_param_named(modeset, i915.modeset, int, 0400);
@@ -259,3 +260,7 @@ MODULE_PARM_DESC(enable_gvt,
 module_param_named_unsafe(enable_dbc, i915.enable_dbc, bool, 0600);
 MODULE_PARM_DESC(enable_dbc,
 	"Enable support for dynamic backlight control (default:true)");
+
+module_param_named_unsafe(enable_preemption, i915.enable_preemption, int, 0400);
+MODULE_PARM_DESC(enable_preemption,
+	"Enable preemption (0=disabled [default], 1=enabled)");

@@ -306,6 +306,9 @@ struct intel_engine_cs {
 	void		(*schedule)(struct drm_i915_gem_request *request,
 				    int priority);
 
+	/* Called to attempt preemption of currently executing workload */
+	int		(*preempt)(struct intel_engine_cs *engine);
+
 	/* Some chipsets are not quite as coherent as advertised and need
 	 * an expensive kick to force a true read of the up-to-date seqno.
 	 * However, the up-to-date seqno is not always required and the last

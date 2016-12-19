@@ -520,6 +520,11 @@ static int guc_ring_doorbell(struct i915_guc_client *client)
 	return ret;
 }
 
+static int i915_guc_preempt_nop(struct intel_engine_cs *engine)
+{
+	return 0;
+}
+
 /**
  * i915_guc_submit() - Submit commands through GuC
  * @rq:		request associated with the commands
@@ -1200,6 +1205,8 @@ int i915_guc_submission_enable(struct drm_i915_private *dev_priv)
 		 * in the tasklet.
 		 */
 		engine->irq_tasklet.func = i915_guc_irq_handler;
+		engine->preempt = i915.enable_preemption ?
+				  i915_guc_preempt_nop : NULL;
 		clear_bit(ENGINE_IRQ_EXECLIST, &engine->irq_posted);
 	}
 
