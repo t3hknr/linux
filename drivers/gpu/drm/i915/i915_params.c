@@ -54,6 +54,7 @@ struct i915_params i915_modparams __read_mostly = {
 	.load_detect_test = 0,
 	.force_reset_modeset_test = 0,
 	.reset = 2,
+	.enable_preemption = false,
 	.error_capture = true,
 	.invert_brightness = 0,
 	.disable_display = 0,
@@ -115,6 +116,9 @@ i915_param_named_unsafe(vbt_sdvo_panel_type, int, 0400,
 
 i915_param_named_unsafe(reset, int, 0600,
 	"Attempt GPU resets (0=disabled, 1=full gpu reset, 2=engine reset [default])");
+
+i915_param_named_unsafe(enable_preemption, bool, 0400,
+	"Enable preemption (0=disabled [default], 1=enabled)");
 
 i915_param_named_unsafe(vbt_firmware, charp, 0400,
 	"Load VBT from specified file under /lib/firmware");

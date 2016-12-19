@@ -841,6 +841,11 @@ pt_lock_engine(struct i915_priotree *pt, struct intel_engine_cs *locked)
 	return engine;
 }
 
+static void execlists_preempt_nop(struct intel_engine_cs *engine)
+{
+	return;
+}
+
 static void execlists_schedule(struct drm_i915_gem_request *request, int prio)
 {
 	struct intel_engine_cs *engine;
@@ -1791,6 +1796,8 @@ static void execlists_set_default_submission(struct intel_engine_cs *engine)
 	engine->submit_request = execlists_submit_request;
 	engine->cancel_requests = execlists_cancel_requests;
 	engine->schedule = execlists_schedule;
+	engine->preempt = i915_modparams.enable_preemption ?
+			  execlists_preempt_nop : NULL;
 	engine->execlist.irq_tasklet.func = intel_lrc_irq_handler;
 }
 

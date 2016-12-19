@@ -3223,6 +3223,9 @@ int intel_sanitize_enable_ppgtt(struct drm_i915_private *dev_priv,
 
 bool intel_sanitize_semaphores(struct drm_i915_private *dev_priv, int value);
 
+bool intel_sanitize_enable_preemption(struct drm_i915_private *dev_priv,
+				      int enable_preemption);
+
 /* i915_drv.c */
 void __printf(3, 4)
 __i915_printk(struct drm_i915_private *dev_priv, const char *level,

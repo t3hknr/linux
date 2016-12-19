@@ -401,6 +401,9 @@ struct intel_engine_cs {
 	void		(*schedule)(struct drm_i915_gem_request *request,
 				    int priority);
 
+	/* Call to attempt preemption of currently executing workload */
+	void		(*preempt)(struct intel_engine_cs *engine);
+
 	/*
 	 * Cancel all requests on the hardware, or queued for execution.
 	 * This should only cancel the ready requests that have been

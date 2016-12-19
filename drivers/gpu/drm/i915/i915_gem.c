@@ -4826,6 +4826,27 @@ bool intel_sanitize_semaphores(struct drm_i915_private *dev_priv, int value)
 	return true;
 }
 
+/**
+ * intel_sanitize_enable_preemption() - sanitize i915.enable_preemption
+ * @dev_priv: i915 device private
+ * @enable_preemption: value of i915.enable_preemption module parameter.
+ *
+ * We're only supporting preemption for platforms using execlists.
+ *
+ * Return: true if preemption is supported and has to be enabled.
+ */
+bool intel_sanitize_enable_preemption(struct drm_i915_private *dev_priv,
+				      int enable_preemption)
+{
+	if (INTEL_INFO(dev_priv)->gen < 9)
+		return false;
+
+	if (enable_preemption >= 0)
+		return enable_preemption;
+
+	return false;
+}
+
 int i915_gem_init(struct drm_i915_private *dev_priv)
 {
 	int ret;

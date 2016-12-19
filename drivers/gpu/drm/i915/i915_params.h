@@ -53,6 +53,7 @@
 	func(int, mmio_debug); \
 	func(int, edp_vswing); \
 	func(int, reset); \
+	func(bool, enable_preemption); \
 	func(unsigned int, inject_load_failure); \
 	/* leave bools at the end to not create holes */ \
 	func(bool, alpha_support); \
