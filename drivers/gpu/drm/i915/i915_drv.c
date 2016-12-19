@@ -1048,6 +1048,12 @@ static void intel_sanitize_options(struct drm_i915_private *dev_priv)
 	i915.semaphores = intel_sanitize_semaphores(dev_priv, i915.semaphores);
 	DRM_DEBUG_DRIVER("use GPU semaphores? %s\n", yesno(i915.semaphores));
 
+	i915.enable_preemption =
+		intel_sanitize_enable_preemption(dev_priv,
+						 i915.enable_preemption);
+	DRM_DEBUG_DRIVER("preemption enabled? %s\n",
+			 yesno(i915.enable_preemption));
+
 	intel_uc_sanitize_options(dev_priv);
 
 	intel_gvt_sanitize_options(dev_priv);

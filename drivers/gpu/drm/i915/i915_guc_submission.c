@@ -482,6 +482,11 @@ static void guc_ring_doorbell(struct i915_guc_client *client)
 	GEM_BUG_ON(db->db_status != GUC_DOORBELL_ENABLED);
 }
 
+static void i915_guc_preempt_nop(struct intel_engine_cs *engine)
+{
+	return;
+}
+
 /**
  * i915_guc_submit() - Submit commands through GuC
  * @engine: engine associated with the commands
@@ -1180,8 +1185,11 @@ int i915_guc_submission_enable(struct drm_i915_private *dev_priv)
 	/* Take over from manual control of ELSP (execlists) */
 	guc_interrupts_capture(dev_priv);
 
-	for_each_engine(engine, dev_priv, id)
+	for_each_engine(engine, dev_priv, id) {
 		engine->execlist.irq_tasklet.func = i915_guc_irq_handler;
+		engine->preempt = i915.enable_preemption ?
+				  i915_guc_preempt_nop : NULL;
+	}
 
 	return 0;
 

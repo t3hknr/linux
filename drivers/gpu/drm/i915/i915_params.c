@@ -72,6 +72,7 @@ struct i915_params i915 __read_mostly = {
 	.inject_load_failure = 0,
 	.enable_dpcd_backlight = false,
 	.enable_gvt = false,
+	.enable_preemption = 0,
 };
 
 i915_param_named(modeset, int, 0400,
@@ -229,3 +230,7 @@ i915_param_named(enable_dpcd_backlight, bool, 0600,
 
 i915_param_named(enable_gvt, bool, 0400,
 	"Enable support for Intel GVT-g graphics virtualization host support(default:false)");
+
+module_param_named_unsafe(enable_preemption, i915.enable_preemption, int, 0400);
+MODULE_PARM_DESC(enable_preemption,
+	"Enable preemption (0=disabled [default], 1=enabled)");
