@@ -395,6 +395,8 @@ struct intel_engine_cs {
 	struct rb_node *execlist_first;
 	unsigned int fw_domains;
 
+	bool preempt_requested;
+
 	/* Contexts are pinned whilst they are active on the GPU. The last
 	 * context executed remains active whilst the GPU is idle - the
 	 * switch away and write to the context object only occurs on the
@@ -496,8 +498,16 @@ intel_write_status_page(struct intel_engine_cs *engine, int reg, u32 value)
  */
 #define I915_GEM_HWS_INDEX		0x30
 #define I915_GEM_HWS_INDEX_ADDR (I915_GEM_HWS_INDEX << MI_STORE_DWORD_INDEX_SHIFT)
+#define I915_GEM_HWS_PREEMPT_INDEX	0x32
+#define I915_GEM_HWS_PREEMPT_ADDR (I915_GEM_HWS_PREEMPT_INDEX << MI_STORE_DWORD_INDEX_SHIFT)
 #define I915_GEM_HWS_SCRATCH_INDEX	0x40
 #define I915_GEM_HWS_SCRATCH_ADDR (I915_GEM_HWS_SCRATCH_INDEX << MI_STORE_DWORD_INDEX_SHIFT)
+
+static inline bool
+intel_engine_is_preempt_finished(struct intel_engine_cs *engine)
+{
+	return intel_read_status_page(engine, I915_GEM_HWS_PREEMPT_INDEX);
+}
 
 struct intel_ring *
 intel_engine_create_ring(struct intel_engine_cs *engine, int size);
