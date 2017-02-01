@@ -561,7 +561,6 @@ static void execlists_dequeue(struct intel_engine_cs *engine)
 			}
 
 			INIT_LIST_HEAD(&rq->priotree.link);
-			rq->priotree.priority = INT_MAX;
 
 			__i915_gem_request_submit(rq);
 			trace_i915_gem_request_in(rq, port_index(port, el));
@@ -771,6 +770,7 @@ static void intel_lrc_irq_handler(unsigned long data)
 				execlists_context_status_change(rq, INTEL_CONTEXT_SCHEDULE_OUT);
 
 				trace_i915_gem_request_out(rq);
+				rq->priotree.priority = INT_MAX;
 				i915_gem_request_put(rq);
 
 				execlist_release_port(el, port);
