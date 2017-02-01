@@ -207,6 +207,11 @@ struct intel_engine_execlist {
 	bool no_priolist;
 
 	/**
+	 * @preempt_requested: preempt-to-idle procedure started
+	 */
+	bool preempt_requested;
+
+	/**
 	 * @port: execlist port states
 	 *
 	 * For each hardware ELSP (ExecList Submission Port) we keep
@@ -643,12 +648,20 @@ intel_write_status_page(struct intel_engine_cs *engine, int reg, u32 value)
  */
 #define I915_GEM_HWS_INDEX		0x30
 #define I915_GEM_HWS_INDEX_ADDR (I915_GEM_HWS_INDEX << MI_STORE_DWORD_INDEX_SHIFT)
+#define I915_GEM_HWS_PREEMPT_INDEX	0x32
+#define I915_GEM_HWS_PREEMPT_ADDR (I915_GEM_HWS_PREEMPT_INDEX << MI_STORE_DWORD_INDEX_SHIFT)
 #define I915_GEM_HWS_SCRATCH_INDEX	0x40
 #define I915_GEM_HWS_SCRATCH_ADDR (I915_GEM_HWS_SCRATCH_INDEX << MI_STORE_DWORD_INDEX_SHIFT)
 
 #define I915_HWS_CSB_BUF0_INDEX		0x10
 #define I915_HWS_CSB_WRITE_INDEX	0x1f
 #define CNL_HWS_CSB_WRITE_INDEX		0x2f
+
+static inline bool
+intel_engine_is_preempt_finished(struct intel_engine_cs *engine)
+{
+	return intel_read_status_page(engine, I915_GEM_HWS_PREEMPT_INDEX);
+}
 
 struct intel_ring *
 intel_engine_create_ring(struct intel_engine_cs *engine, int size);
@@ -793,6 +806,11 @@ void intel_engine_get_instdone(struct intel_engine_cs *engine,
 static inline u32 intel_hws_seqno_address(struct intel_engine_cs *engine)
 {
 	return engine->status_page.ggtt_offset + I915_GEM_HWS_INDEX_ADDR;
+}
+
+static inline u32 intel_hws_preempt_done_address(struct intel_engine_cs *engine)
+{
+	return engine->status_page.ggtt_offset + I915_GEM_HWS_PREEMPT_ADDR;
 }
 
 /* intel_breadcrumbs.c -- user interrupt bottom-half for waiters */
