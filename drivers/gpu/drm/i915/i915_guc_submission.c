@@ -522,6 +522,9 @@ static int guc_ring_doorbell(struct i915_guc_client *client)
 
 static int i915_guc_preempt_nop(struct intel_engine_cs *engine)
 {
+	engine->preempt_requested = false;
+	intel_write_status_page(engine, I915_GEM_HWS_PREEMPT_INDEX, 0);
+
 	return 0;
 }
 

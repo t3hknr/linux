@@ -758,15 +758,75 @@ pt_lock_engine(struct i915_priotree *pt, struct intel_engine_cs *locked)
 	return engine;
 }
 
-static void execlists_schedule(struct drm_i915_gem_request *request, int prio)
+#define EXECLISTS_PREEMPT_THRESHOLD 512
+
+static bool __execlists_needs_preempt(struct intel_engine_cs *engine,
+				      int prio)
+{
+	struct drm_i915_gem_request *rq;
+	int highest_prio = INT_MIN;
+
+	list_for_each_entry_reverse(rq, &engine->timeline->requests, link) {
+		if (!i915_gem_request_completed(rq)) {
+			highest_prio = (rq->priotree.priority > highest_prio) ?
+				 rq->priotree.priority : highest_prio;
+		} else
+			break;
+	}
+
+	/* Bail out if our priority is lower than any of the inflight requests
+	 * (also if there are no requests) */
+	if (highest_prio == INT_MIN || prio <= highest_prio)
+		return false;
+
+	engine->preempt_requested = true;
+	smp_wmb();
+
+	return true;
+}
+
+static bool execlists_needs_preempt(struct intel_engine_cs *engine,
+				    int prio,
+				    unsigned long *engines_bumped)
+{
+	int num_engines_bumped = bitmap_weight(engines_bumped,
+					       I915_NUM_ENGINES);
+
+	/* Preemption is disabled */
+	if (!engine->preempt)
+		return false;
+
+	/* We're not a high priority request */
+	if (prio < EXECLISTS_PREEMPT_THRESHOLD)
+		return false;
+
+	/* We have dependencies on many engines */
+	if (num_engines_bumped > 1)
+		return false;
+
+	/* We have dependency on a single engine - but it's not our engine */
+	if (num_engines_bumped == 1 && !test_bit(engine->id, engines_bumped))
+		return false;
+
+	if (READ_ONCE(engine->preempt_requested))
+		return false;
+
+	return __execlists_needs_preempt(engine, prio);
+}
+
+static void execlists_schedule(struct drm_i915_gem_request *request, int prio,
+			       bool *needs_preempt)
 {
 	struct intel_engine_cs *engine;
 	struct i915_dependency *dep, *p;
 	struct i915_dependency stack;
 	LIST_HEAD(dfs);
+	DECLARE_BITMAP(engine_bumped, I915_NUM_ENGINES);
 
 	if (prio <= READ_ONCE(request->priotree.priority))
 		return;
+
+	bitmap_zero(engine_bumped, I915_NUM_ENGINES);
 
 	/* Need BKL in order to use the temporary link inside i915_dependency */
 	lockdep_assert_held(&request->i915->drm.struct_mutex);
@@ -843,6 +903,7 @@ static void execlists_schedule(struct drm_i915_gem_request *request, int prio)
 		if (prio <= pt->priority)
 			continue;
 
+		__set_bit(engine->id, engine_bumped);
 		pt->priority = prio;
 		if (!list_empty(&pt->link)) {
 			__list_del_entry(&pt->link);
@@ -850,9 +911,10 @@ static void execlists_schedule(struct drm_i915_gem_request *request, int prio)
 		}
 	}
 
-	spin_unlock_irq(&engine->timeline->lock);
 
-	/* XXX Do we need to preempt to make room for us and our deps? */
+	*needs_preempt = execlists_needs_preempt(engine, prio, engine_bumped);
+
+	spin_unlock_irq(&engine->timeline->lock);
 }
 
 static struct intel_ring *

@@ -467,6 +467,8 @@ static void __fence_set_priority(struct dma_fence *fence, int prio)
 {
 	struct drm_i915_gem_request *rq;
 	struct intel_engine_cs *engine;
+	int err;
+	bool needs_preempt = false;
 
 	if (!dma_fence_is_i915(fence))
 		return;
@@ -476,7 +478,17 @@ static void __fence_set_priority(struct dma_fence *fence, int prio)
 	if (!engine->schedule)
 		return;
 
-	engine->schedule(rq, prio);
+	engine->schedule(rq, prio, &needs_preempt);
+
+	if (needs_preempt) {
+		tasklet_kill(&engine->irq_tasklet);
+		err = engine->preempt(engine);
+		if (unlikely(err)) {
+			engine->preempt_requested = false;
+			smp_wmb();
+			tasklet_hi_schedule(&engine->irq_tasklet);
+		}
+	}
 }
 
 static void fence_set_priority(struct dma_fence *fence, int prio)

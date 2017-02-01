@@ -299,12 +299,13 @@ struct intel_engine_cs {
 
 	/* Call when the priority on a request has changed and it and its
 	 * dependencies may need rescheduling. Note the request itself may
-	 * not be ready to run!
+	 * not be ready to run! If during rescheduling we decide that
+	 * preemption is needed, we express that with needs_preempt.
 	 *
 	 * Called under the struct_mutex.
 	 */
 	void		(*schedule)(struct drm_i915_gem_request *request,
-				    int priority);
+				    int priority, bool *needs_preempt);
 
 	/* Called to attempt preemption of currently executing workload */
 	int		(*preempt)(struct intel_engine_cs *engine);
