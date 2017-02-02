@@ -535,12 +535,46 @@ static int guc_ring_doorbell(struct i915_guc_client *client)
 	return ret;
 }
 
-static int i915_guc_preempt_nop(struct intel_engine_cs *engine)
+#define CTX_RING_HEAD			0x04
+static void guc_wq_add_preempt(struct intel_engine_cs *engine)
 {
-	engine->preempt_requested = false;
-	intel_write_status_page(engine, I915_GEM_HWS_PREEMPT_INDEX, 0);
+	struct drm_i915_private *dev_priv = engine->i915;
+	struct intel_guc *guc = &engine->i915->guc;
+	struct i915_gem_context *ctx = engine->i915->preempt_context;
+	struct i915_guc_client *client = guc->preempt_client;
+	struct intel_context *ce = &ctx->engine[engine->id];
+	struct intel_ring *ring = ce->ring;
+	u32 *cs = ring->vaddr;
 
-	return 0;
+	ce->lrc_reg_state[CTX_RING_HEAD + 1] = 0;
+
+	if (engine->id == RCS) {
+		*cs++ = GFX_OP_PIPE_CONTROL(6);
+		*cs++ = PIPE_CONTROL_GLOBAL_GTT_IVB |
+			PIPE_CONTROL_CS_STALL |
+			PIPE_CONTROL_QW_WRITE;
+		*cs++ = engine->status_page.ggtt_offset +
+			I915_GEM_HWS_PREEMPT_ADDR;
+		*cs++ = 0;
+		*cs++ = 1;
+		*cs++ = 0;
+		*cs++ = MI_USER_INTERRUPT;
+		*cs++ = MI_NOOP;
+	} else {
+		*cs++ = (MI_FLUSH_DW + 1) | MI_FLUSH_DW_OP_STOREDW;
+		*cs++ = (engine->status_page.ggtt_offset + I915_GEM_HWS_PREEMPT_ADDR) |
+		        MI_FLUSH_DW_USE_GTT;
+		*cs++ = 0;
+		*cs++ = 1;
+		*cs++ = MI_USER_INTERRUPT;
+		*cs++ = MI_NOOP;
+	}
+	ring->tail = (void*)cs - ring->vaddr;
+
+	guc_wq_item_append(client, engine, ctx, 0, ring->tail);
+
+	if (i915_vma_is_map_and_fenceable(ring->vma))
+		POSTING_READ_FW(GUC_STATUS);
 }
 
 /**
@@ -1176,6 +1210,30 @@ static void guc_interrupts_release(struct drm_i915_private *dev_priv)
 	dev_priv->rps.pm_intrmsk_mbz &= ~ARAT_EXPIRED_INTRMSK;
 }
 
+static int i915_guc_preempt(struct intel_engine_cs *engine)
+{
+	struct intel_guc *guc = &engine->i915->guc;
+	struct i915_guc_client *client = guc->preempt_client;
+	struct guc_process_desc *desc = __get_process_desc(client);
+	u32 data[7];
+
+	guc_wq_add_preempt(engine);
+
+	desc->tail = client->wq_tail;
+
+	data[0] = INTEL_GUC_ACTION_REQUEST_PREEMPTION;
+	data[1] = client->stage_id;
+	data[2] = INTEL_GUC_PREEMPT_OPTION_IMMEDIATE |
+		  INTEL_GUC_PREEMPT_OPTION_DROP_WORK_Q |
+		  INTEL_GUC_PREEMPT_OPTION_DROP_SUBMIT_Q;
+	data[3] = engine->guc_id;
+	data[4] = guc->execbuf_client->priority;
+	data[5] = guc->execbuf_client->stage_id;
+	data[6] = guc->shared_data_offset;
+
+	return intel_guc_send(guc, data, ARRAY_SIZE(data));
+}
+
 int i915_guc_submission_enable(struct drm_i915_private *dev_priv)
 {
 	struct intel_guc *guc = &dev_priv->guc;
@@ -1245,7 +1303,7 @@ int i915_guc_submission_enable(struct drm_i915_private *dev_priv)
 		 */
 		engine->irq_tasklet.func = i915_guc_irq_handler;
 		engine->preempt = i915.enable_preemption ?
-				  i915_guc_preempt_nop : NULL;
+				  i915_guc_preempt : NULL;
 		clear_bit(ENGINE_IRQ_EXECLIST, &engine->irq_posted);
 	}
 
