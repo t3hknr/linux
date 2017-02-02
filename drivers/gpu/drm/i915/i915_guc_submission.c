@@ -613,6 +613,10 @@ static void i915_guc_dequeue(struct intel_engine_cs *engine)
 		port++;
 
 	spin_lock_irq(&engine->timeline->lock);
+
+	if (engine->preempt_requested)
+		goto out;
+
 	rb = engine->execlist_first;
 	GEM_BUG_ON(rb_first(&engine->execlist_queue) != rb);
 	while (rb) {
@@ -652,6 +656,7 @@ done:
 		port_assign(port, last);
 		i915_guc_submit(engine);
 	}
+out:
 	spin_unlock_irq(&engine->timeline->lock);
 }
 
@@ -660,6 +665,8 @@ static void i915_guc_irq_handler(unsigned long data)
 	struct intel_engine_cs *engine = (struct intel_engine_cs *)data;
 	struct execlist_port *port = engine->execlist_port;
 	struct drm_i915_gem_request *rq;
+
+	intel_lr_preempt_postprocess(engine);
 
 	rq = port_request(&port[0]);
 	while (rq && i915_gem_request_completed(rq)) {

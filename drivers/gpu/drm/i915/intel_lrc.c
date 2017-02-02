@@ -1065,6 +1065,19 @@ static void intel_lr_resubmit_requests(struct intel_engine_cs *engine)
 	}
 }
 
+void intel_lr_preempt_postprocess(struct intel_engine_cs *engine)
+{
+	spin_lock_irq(&engine->timeline->lock);
+	if (engine->preempt_requested &&
+	    intel_engine_is_preempt_finished(engine)) {
+		intel_lr_resubmit_requests(engine);
+		engine->preempt_requested = false;
+		intel_write_status_page(engine, I915_GEM_HWS_PREEMPT_INDEX, 0);
+		intel_lr_clear_execlist_ports(engine);
+	}
+	spin_unlock_irq(&engine->timeline->lock);
+}
+
 /*
  * In this WA we need to set GEN8_L3SQCREG4[21:21] and reset it after
  * PIPE_CONTROL instruction. This is required for the flush to happen correctly
