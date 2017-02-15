@@ -1508,9 +1508,12 @@ static int gen8_emit_bb_start(struct drm_i915_gem_request *req,
 		req->ctx->ppgtt->pd_dirty_rings &= ~intel_engine_flag(req->engine);
 	}
 
-	cs = intel_ring_begin(req, 4);
+	cs = intel_ring_begin(req, 6);
 	if (IS_ERR(cs))
 		return PTR_ERR(cs);
+
+	*cs++ = MI_ARB_CHECK;
+	*cs++ = MI_NOOP;
 
 	/* FIXME(BDW): Address space and security selectors. */
 	*cs++ = MI_BATCH_BUFFER_START_GEN8 |
