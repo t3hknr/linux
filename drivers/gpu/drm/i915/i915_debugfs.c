@@ -3339,6 +3339,10 @@ static int i915_engine_info(struct seq_file *m, void *unused)
 		seq_printf(m, "\tReset count: %d\n",
 			   i915_reset_engine_count(error, engine));
 
+		seq_printf(m, "\tpreempt [requested %d, finished %d]\n",
+			   engine->preempt_requested,
+			   intel_engine_is_preempt_finished(engine));
+
 		rcu_read_lock();
 
 		seq_printf(m, "\tRequests:\n");
