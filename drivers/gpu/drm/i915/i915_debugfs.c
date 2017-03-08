@@ -2459,7 +2459,7 @@ static bool check_guc_submission(struct seq_file *m)
 	struct drm_i915_private *dev_priv = node_to_i915(m->private);
 	const struct intel_guc *guc = &dev_priv->guc;
 
-	if (!guc->execbuf_client) {
+	if (!guc->client[SUBMIT]) {
 		seq_printf(m, "GuC submission %s\n",
 			   HAS_GUC_SCHED(dev_priv) ?
 			   "disabled" :
@@ -2474,6 +2474,7 @@ static int i915_guc_info(struct seq_file *m, void *data)
 {
 	struct drm_i915_private *dev_priv = node_to_i915(m->private);
 	const struct intel_guc *guc = &dev_priv->guc;
+	u32 i;
 
 	if (!check_guc_submission(m))
 		return 0;
@@ -2482,8 +2483,10 @@ static int i915_guc_info(struct seq_file *m, void *data)
 	seq_printf(m, "\t%*pb\n", GUC_NUM_DOORBELLS, guc->doorbell_bitmap);
 	seq_printf(m, "Doorbell next cacheline: 0x%x\n\n", guc->db_cacheline);
 
-	seq_printf(m, "\nGuC execbuf client @ %p:\n", guc->execbuf_client);
-	i915_guc_client_info(m, dev_priv, guc->execbuf_client);
+	for (i = 0; i < I915_GUC_NUM_CLIENTS; i++) {
+		seq_printf(m, "\nGuC client @ %p:\n", guc->client[i]);
+		i915_guc_client_info(m, dev_priv, guc->client[i]);
+	}
 
 	i915_guc_log_info(m, dev_priv);
 
@@ -2497,7 +2500,7 @@ static int i915_guc_stage_pool(struct seq_file *m, void *data)
 	struct drm_i915_private *dev_priv = node_to_i915(m->private);
 	const struct intel_guc *guc = &dev_priv->guc;
 	struct guc_stage_desc *desc = guc->stage_desc_pool_vaddr;
-	struct i915_guc_client *client = guc->execbuf_client;
+	struct i915_guc_client *client = guc->client[SUBMIT];
 	unsigned int tmp;
 	int index;
 
