@@ -331,6 +331,8 @@ static void guc_stage_desc_init(struct intel_guc *guc,
 	memset(desc, 0, sizeof(*desc));
 
 	desc->attribute = GUC_STAGE_DESC_ATTR_ACTIVE | GUC_STAGE_DESC_ATTR_KERNEL;
+	if (client->priority <= GUC_CLIENT_PRIORITY_HIGH)
+		desc->attribute |= GUC_STAGE_DESC_ATTR_PREEMPT;
 	desc->stage_id = client->stage_id;
 	desc->priority = client->priority;
 	desc->db_id = client->doorbell_id;
@@ -1154,7 +1156,7 @@ int i915_guc_submission_enable(struct drm_i915_private *dev_priv)
 		     sizeof(struct guc_wq_item) *
 		     I915_NUM_ENGINES > GUC_WQ_SIZE);
 
-	if (!client) {
+	if (!guc->execbuf_client) {
 		client = guc_client_alloc(dev_priv,
 					  INTEL_INFO(dev_priv)->ring_mask,
 					  GUC_CLIENT_PRIORITY_KMD_NORMAL,
@@ -1167,15 +1169,29 @@ int i915_guc_submission_enable(struct drm_i915_private *dev_priv)
 		guc->execbuf_client = client;
 	}
 
+	if (!guc->preempt_client) {
+		client = guc_client_alloc(dev_priv,
+					  INTEL_INFO(dev_priv)->ring_mask,
+					  GUC_CLIENT_PRIORITY_KMD_HIGH,
+					  dev_priv->preempt_context);
+		if (IS_ERR(client)) {
+			DRM_ERROR("Failed to create GuC client for preemption!\n");
+			err = PTR_ERR(client);
+			goto err_free_clients;
+		}
+
+		guc->preempt_client = client;
+	}
+
 	err = intel_guc_sample_forcewake(guc);
 	if (err)
-		goto err_execbuf_client;
+		goto err_free_clients;
 
 	guc_reset_wq(client);
 
 	err = guc_init_doorbell_hw(guc);
 	if (err)
-		goto err_execbuf_client;
+		goto err_free_clients;
 
 	/* Take over from manual control of ELSP (execlists) */
 	guc_interrupts_capture(dev_priv);
@@ -1187,7 +1203,11 @@ int i915_guc_submission_enable(struct drm_i915_private *dev_priv)
 
 	return 0;
 
-err_execbuf_client:
+err_free_clients:
+	if (guc->preempt_client) {
+		guc_client_free(guc->preempt_client);
+		guc->preempt_client = NULL;
+	}
 	guc_client_free(guc->execbuf_client);
 	guc->execbuf_client = NULL;
 	return err;
@@ -1202,6 +1222,10 @@ void i915_guc_submission_disable(struct drm_i915_private *dev_priv)
 	/* Revert back to manual ELSP submission */
 	intel_engines_reset_default_submission(dev_priv);
 
+	if (guc->preempt_client) {
+		guc_client_free(guc->preempt_client);
+		guc->preempt_client = NULL;
+	}
 	guc_client_free(guc->execbuf_client);
 	guc->execbuf_client = NULL;
 }
