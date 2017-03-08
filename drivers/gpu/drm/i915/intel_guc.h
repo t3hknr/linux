@@ -33,6 +33,12 @@
 #include "i915_guc_reg.h"
 #include "i915_vma.h"
 
+#define I915_GUC_NUM_CLIENTS 2
+enum i915_guc_client_id {
+	SUBMIT = 0,
+	PREEMPT
+};
+
 struct intel_guc {
 	struct intel_uc_fw fw;
 	struct intel_guc_log log;
@@ -51,7 +57,7 @@ struct intel_guc {
 	struct i915_vma *shared_data;
 	void *shared_data_vaddr;
 
-	struct i915_guc_client *execbuf_client;
+	struct i915_guc_client *client[I915_GUC_NUM_CLIENTS];
 
 	DECLARE_BITMAP(doorbell_bitmap, GUC_NUM_DOORBELLS);
 	/* Cyclic counter mod pagesize	*/
