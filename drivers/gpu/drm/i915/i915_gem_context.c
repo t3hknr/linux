@@ -500,13 +500,21 @@ int i915_gem_contexts_init(struct drm_i915_private *dev_priv)
 	/* For easy recognisablity, we want the kernel context to be 0 and then
 	 * all user contexts will have non-zero hw_id.
 	 */
-	GEM_BUG_ON(ctx->hw_id);
+	GEM_BUG_ON(!i915_gem_context_is_kernel(ctx));
 
 	i915_gem_context_clear_bannable(ctx);
 	ctx->priority = I915_PRIORITY_MIN; /* lowest priority; idle task */
 	dev_priv->kernel_context = ctx;
 
-	GEM_BUG_ON(!i915_gem_context_is_kernel(ctx));
+
+	ctx = i915_gem_create_context(dev_priv, NULL);
+	if (IS_ERR(ctx)) {
+		DRM_ERROR("Failed to create preempt context (error %ld)\n",
+			  PTR_ERR(ctx));
+		return PTR_ERR(ctx);
+	}
+	i915_gem_context_clear_bannable(ctx);
+	dev_priv->preempt_context = ctx;
 
 	DRM_DEBUG_DRIVER("%s context support initialized\n",
 			 dev_priv->engine[RCS]->context_size ? "logical" :
@@ -563,6 +571,10 @@ void i915_gem_contexts_fini(struct drm_i915_private *i915)
 	/* Keep the context so that we can free it immediately ourselves */
 	ctx = i915_gem_context_get(fetch_and_zero(&i915->kernel_context));
 	GEM_BUG_ON(!i915_gem_context_is_kernel(ctx));
+	context_close(ctx);
+	i915_gem_context_free(ctx);
+
+	ctx = i915_gem_context_get(fetch_and_zero(&i915->preempt_context));
 	context_close(ctx);
 	i915_gem_context_free(ctx);
 

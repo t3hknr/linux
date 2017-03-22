@@ -275,7 +275,7 @@ static inline bool i915_gem_context_is_default(const struct i915_gem_context *c)
 
 static inline bool i915_gem_context_is_kernel(struct i915_gem_context *ctx)
 {
-	return !ctx->file_priv;
+	return !ctx->hw_id;
 }
 
 /* i915_gem_context.c */

@@ -2133,6 +2133,7 @@ struct drm_i915_private {
 
 	struct pci_dev *bridge_dev;
 	struct i915_gem_context *kernel_context;
+	struct i915_gem_context *preempt_context;
 	struct intel_engine_cs *engine[I915_NUM_ENGINES];
 	struct i915_vma *semaphore;
 

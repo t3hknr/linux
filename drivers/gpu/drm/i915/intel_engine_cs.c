@@ -474,6 +474,15 @@ int intel_engine_init_common(struct intel_engine_cs *engine)
 	if (IS_ERR(ring))
 		return PTR_ERR(ring);
 
+	if (i915.enable_preemption) {
+		ring = engine->context_pin(engine,
+					  engine->i915->preempt_context);
+		if (IS_ERR(ring)) {
+			ret = PTR_ERR(ring);
+			goto err_kernel_unpin;
+		}
+	}
+
 	ret = intel_engine_init_breadcrumbs(engine);
 	if (ret)
 		goto err_unpin;
@@ -485,6 +494,9 @@ int intel_engine_init_common(struct intel_engine_cs *engine)
 	return 0;
 
 err_unpin:
+	if (i915.enable_preemption)
+		engine->context_unpin(engine, engine->i915->preempt_context);
+err_kernel_unpin:
 	engine->context_unpin(engine, engine->i915->kernel_context);
 	return ret;
 }
@@ -505,6 +517,8 @@ void intel_engine_cleanup_common(struct intel_engine_cs *engine)
 	intel_engine_cleanup_cmd_parser(engine);
 	i915_gem_batch_pool_fini(&engine->batch_pool);
 
+	if (i915.enable_preemption)
+		engine->context_unpin(engine, engine->i915->preempt_context);
 	engine->context_unpin(engine, engine->i915->kernel_context);
 }
 

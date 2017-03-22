@@ -555,6 +555,8 @@ i915_gem_request_alloc(struct intel_engine_cs *engine,
 	struct intel_ring *ring;
 	int ret;
 
+	GEM_BUG_ON(!ctx || ctx == dev_priv->preempt_context);
+
 	lockdep_assert_held(&dev_priv->drm.struct_mutex);
 
 	/* ABI: Before userspace accesses the GPU (e.g. execbuffer), report
