@@ -535,7 +535,6 @@ static void i915_guc_submit(struct intel_engine_cs *engine)
 	struct execlist_port *port = engine->execlist_port;
 	unsigned int engine_id = engine->id;
 	unsigned int n;
-	unsigned long flags;
 
 	for (n = 0; n < ARRAY_SIZE(engine->execlist_port); n++) {
 		struct drm_i915_gem_request *rq;
@@ -548,14 +547,14 @@ static void i915_guc_submit(struct intel_engine_cs *engine)
 			if (i915_vma_is_map_and_fenceable(rq->ring->vma))
 				POSTING_READ_FW(GUC_STATUS);
 
-			spin_lock_irqsave(&client->wq_lock, flags);
+			spin_lock(&client->wq_lock);
 
 			guc_wq_item_append(client, rq);
 			WARN_ON(guc_ring_doorbell(client));
 
 			client->submissions[engine_id] += 1;
 
-			spin_unlock_irqrestore(&client->wq_lock, flags);
+			spin_unlock(&client->wq_lock);
 		}
 	}
 }
@@ -1202,7 +1201,6 @@ int i915_guc_submission_enable(struct drm_i915_private *dev_priv)
 		 */
 		engine->irq_tasklet.func = i915_guc_irq_handler;
 		clear_bit(ENGINE_IRQ_EXECLIST, &engine->irq_posted);
-		i915_guc_submit(engine);
 	}
 
 	return 0;

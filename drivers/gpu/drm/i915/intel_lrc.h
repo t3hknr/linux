@@ -83,6 +83,7 @@ uint64_t intel_lr_context_descriptor(struct i915_gem_context *ctx,
 				     struct intel_engine_cs *engine);
 
 /* Execlists */
+void intel_lr_clear_execlist_ports(struct intel_engine_cs *engine);
 int intel_sanitize_enable_execlists(struct drm_i915_private *dev_priv,
 				    int enable_execlists);
 
