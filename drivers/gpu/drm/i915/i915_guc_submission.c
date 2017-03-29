@@ -69,7 +69,7 @@
  * WQ_TYPE_INORDER is needed to support legacy submission via GuC, which
  * represents in-order queue. The kernel driver packs ring tail pointer and an
  * ELSP context descriptor dword into Work Item.
- * See guc_wq_item_append()
+ * See guc_wq_add_request()
  *
  * ADS:
  * The Additional Data Struct (ADS) has pointers for different buffers used by
@@ -410,32 +410,15 @@ static void guc_stage_desc_fini(struct intel_guc *guc,
 
 /* Construct a Work Item and append it to the GuC's Work Queue */
 static void guc_wq_item_append(struct i915_guc_client *client,
-			       struct drm_i915_gem_request *rq)
+			       struct intel_engine_cs *engine,
+			       struct i915_gem_context *ctx,
+			       u32 seqno, u32 tail)
 {
-	/* wqi_len is in DWords, and does not include the one-word header */
 	const size_t wqi_size = sizeof(struct guc_wq_item);
+	/* wqi_len is in DWords, and does not include the one-word header */
 	const u32 wqi_len = wqi_size/sizeof(u32) - 1;
-	struct intel_engine_cs *engine = rq->engine;
-	struct guc_process_desc *desc = __get_process_desc(client);
 	struct guc_wq_item *wqi;
-	u32 freespace, tail, wq_off;
-
-	/* Free space is guaranteed */
-	freespace = CIRC_SPACE(client->wq_tail, desc->head, client->wq_size);
-	GEM_BUG_ON(freespace < wqi_size);
-
-	/* The GuC firmware wants the tail index in QWords, not bytes */
-	tail = intel_ring_set_tail(rq->ring, rq->tail) >> 3;
-	GEM_BUG_ON(tail > WQ_RING_TAIL_MAX);
-
-	/* For now workqueue item is 4 DWs; workqueue buffer is 2 pages. So we
-	 * should not have the case where structure wqi is across page, neither
-	 * wrapped to the beginning. This simplifies the implementation below.
-	 *
-	 * XXX: if not the case, we need save data to a temp wqi and copy it to
-	 * workqueue buffer dw by dw.
-	 */
-	BUILD_BUG_ON(wqi_size != 16);
+	u32 wq_off;
 
 	/* postincrement WQ tail for next time */
 	wq_off = client->wq_tail;
@@ -453,10 +436,40 @@ static void guc_wq_item_append(struct i915_guc_client *client,
 			WQ_NO_WCFLUSH_WAIT;
 
 	/* The GuC wants only the low-order word of the context descriptor */
-	wqi->context_desc = (u32)intel_lr_context_descriptor(rq->ctx, engine);
+	wqi->context_desc = (u32)intel_lr_context_descriptor(ctx, engine);
 
 	wqi->submit_element_info = tail << WQ_RING_TAIL_SHIFT;
-	wqi->fence_id = rq->global_seqno;
+	wqi->fence_id = seqno;
+}
+
+static void guc_wq_add_request(struct i915_guc_client *client,
+			       struct drm_i915_gem_request *rq)
+{
+	const size_t wqi_size = sizeof(struct guc_wq_item);
+	struct guc_process_desc *desc = __get_process_desc(client);
+	u32 freespace, tail;
+
+	/* For now workqueue item is 4 DWs; workqueue buffer is 2 pages. So we
+	 * should not have the case where structure wqi is across page, neither
+	 * wrapped to the beginning. This simplifies the implementation below.
+	 *
+	 * XXX: if not the case, we need save data to a temp wqi and copy it to
+	 * workqueue buffer dw by dw.
+	 */
+	BUILD_BUG_ON(wqi_size != 16);
+
+	lockdep_assert_held(&client->wq_lock);
+
+	/* Free space is guaranteed, see guc_wq_reserve() above */
+	freespace = CIRC_SPACE(client->wq_tail, desc->head, client->wq_size);
+	GEM_BUG_ON(freespace < wqi_size);
+
+	/* The GuC firmware wants the tail index in QWords, not bytes */
+	tail = intel_ring_set_tail(rq->ring, rq->tail) >> 3;
+	GEM_BUG_ON(tail > WQ_RING_TAIL_MAX);
+
+	guc_wq_item_append(client, rq->engine, rq->ctx,
+			   rq->global_seqno, tail);
 }
 
 static void guc_reset_wq(struct i915_guc_client *client)
@@ -559,7 +572,7 @@ static void i915_guc_submit(struct intel_engine_cs *engine)
 
 			spin_lock(&client->wq_lock);
 
-			guc_wq_item_append(client, rq);
+			guc_wq_add_request(client, rq);
 			WARN_ON(guc_ring_doorbell(client));
 
 			client->submissions[engine_id] += 1;
