@@ -628,20 +628,16 @@ static void intel_lrc_irq_handler(unsigned long data)
 	intel_uncore_forcewake_put(dev_priv, engine->fw_domains);
 }
 
-static bool
-insert_request(struct intel_engine_cs *engine,
-	       struct i915_priotree *pt,
-	       int prio)
+static struct i915_priolist *
+priolist_lookup(struct intel_engine_cs *engine, int prio, bool *first)
 {
 	struct i915_priolist *p;
 	struct rb_node **parent, *rb;
-	bool first = true;
-
-	if (unlikely(engine->no_priolist))
-		prio = I915_PRIORITY_NORMAL;
 
 find_priolist:
-	/* most positive priority is scheduled first, equal priorities fifo */
+	if (unlikely(engine->no_priolist))
+		prio = I915_PRIORITY_NORMAL;
+	*first = true;
 	rb = NULL;
 	parent = &engine->execlist_queue.rb_node;
 	while (*parent) {
@@ -651,10 +647,10 @@ find_priolist:
 			parent = &rb->rb_left;
 		} else if (prio < p->priority) {
 			parent = &rb->rb_right;
-			first = false;
+			*first = false;
 		} else {
-			list_add_tail(&pt->link, &p->requests);
-			return false;
+			*first = false;
+			return p;
 		}
 	}
 
@@ -662,10 +658,8 @@ find_priolist:
 		p = &engine->default_priolist;
 	} else {
 		p = kmem_cache_alloc(engine->i915->priorities, GFP_ATOMIC);
-		/* Convert an allocation failure to a priority bump */
-		if (unlikely(!p)) {
-			prio = I915_PRIORITY_NORMAL; /* recurses just once */
 
+		if (unlikely(!p)) {
 			/* To maintain ordering with all rendering, after an
 			 * allocation failure we have to disable all scheduling.
 			 * Requests will then be executed in fifo, and schedule
@@ -684,10 +678,25 @@ find_priolist:
 	rb_insert_color(&p->node, &engine->execlist_queue);
 
 	INIT_LIST_HEAD(&p->requests);
-	list_add_tail(&pt->link, &p->requests);
 
-	if (first)
+	if (*first)
 		engine->execlist_first = &p->node;
+
+	return p;
+}
+
+static bool
+insert_request(struct intel_engine_cs *engine,
+	       struct i915_priotree *pt,
+	       int prio)
+{
+	struct i915_priolist *p;
+	bool first = false;
+
+	p = priolist_lookup(engine, prio, &first);
+
+	/* most positive priority is scheduled first, equal priorities fifo */
+	list_add_tail(&pt->link, &p->requests);
 
 	return first;
 }
