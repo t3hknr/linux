@@ -714,8 +714,12 @@ static void i915_guc_irq_handler(unsigned long data)
 	struct intel_engine_cs *engine = (struct intel_engine_cs *)data;
 	struct execlist_port *port = engine->execlist_port;
 	struct drm_i915_gem_request *rq;
+	struct guc_shared_ctx_data *shared_data;
 
-	intel_lr_preempt_postprocess(engine);
+	if (intel_lr_preempt_postprocess(engine)) {
+		shared_data = engine->i915->guc.shared_data_addr;
+		wait_for_atomic(shared_data->preempt_ctx_report[engine->guc_id].report_return_status == INTEL_GUC_REPORT_STATUS_COMPLETE, 1);
+	}
 
 	rq = port_request(&port[0]);
 	while (rq && i915_gem_request_completed(rq)) {

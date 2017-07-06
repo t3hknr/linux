@@ -1052,8 +1052,10 @@ static void intel_lr_resubmit_requests(struct intel_engine_cs *engine)
 	}
 }
 
-void intel_lr_preempt_postprocess(struct intel_engine_cs *engine)
+bool intel_lr_preempt_postprocess(struct intel_engine_cs *engine)
 {
+	bool ret = false;
+
 	spin_lock_irq(&engine->timeline->lock);
 	if (engine->preempt_requested &&
 	    intel_engine_is_preempt_finished(engine)) {
@@ -1061,8 +1063,11 @@ void intel_lr_preempt_postprocess(struct intel_engine_cs *engine)
 		engine->preempt_requested = false;
 		intel_write_status_page(engine, I915_GEM_HWS_PREEMPT_INDEX, 0);
 		intel_lr_clear_execlist_ports(engine);
+		ret = true;
 	}
 	spin_unlock_irq(&engine->timeline->lock);
+
+	return ret;
 }
 
 /*
