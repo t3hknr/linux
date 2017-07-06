@@ -308,17 +308,35 @@ static void guc_free_load_err_log(struct intel_guc *guc)
 static int guc_enable_communication(struct intel_guc *guc)
 {
 	struct drm_i915_private *dev_priv = guc_to_i915(guc);
-	struct i915_gem_context *ctx = dev_priv->kernel_context;
+	struct intel_context *ce = &dev_priv->kernel_context->engine[RCS];
+	int ret;
+	void *vaddr;
 
-	guc->shared_data_offset = guc_ggtt_offset(ctx->engine[RCS].state);
+	vaddr = i915_gem_object_pin_map(ce->state->obj, I915_MAP_WB);
+	if (IS_ERR(vaddr)) {
+		ret = PTR_ERR(vaddr);
+		goto err;
+	}
+
+	guc->shared_data_addr = vaddr;
+	guc->shared_data_offset = guc_ggtt_offset(ce->state);
 
 	guc_init_send_regs(guc);
 
-	if (HAS_GUC_CT(dev_priv))
-		return intel_guc_enable_ct(guc);
+	if (HAS_GUC_CT(dev_priv)) {
+		ret = intel_guc_enable_ct(guc);
+		if (ret)
+			goto unpin_map;
+	}
 
 	guc->send = intel_guc_send_mmio;
+
 	return 0;
+
+unpin_map:
+	i915_gem_object_unpin_map(vaddr);
+err:
+	return ret;
 }
 
 static void guc_disable_communication(struct intel_guc *guc)
