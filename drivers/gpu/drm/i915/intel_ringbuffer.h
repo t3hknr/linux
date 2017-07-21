@@ -894,6 +894,10 @@ void intel_engine_enable_signaling(struct drm_i915_gem_request *request,
 				   bool wakeup);
 void intel_engine_cancel_signaling(struct drm_i915_gem_request *request);
 
+void intel_engine_preempt(struct intel_engine_cs *engine,
+			  unsigned engine_mask,
+			  int priority);
+
 static inline bool intel_engine_has_waiter(const struct intel_engine_cs *engine)
 {
 	return READ_ONCE(engine->breadcrumbs.irq_wait);

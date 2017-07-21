@@ -695,6 +695,33 @@ u64 intel_engine_get_last_batch_head(struct intel_engine_cs *engine)
 	return bbaddr;
 }
 
+#define I915_PREEMPT_THRESHOLD 128
+void intel_engine_preempt(struct intel_engine_cs *engine,
+			  unsigned engine_mask,
+			  int priority)
+{
+	struct intel_engine_execlist * const el = &engine->execlist;
+
+	if (!i915_modparams.enable_preemption)
+		return;
+
+	if (READ_ONCE(el->preempt_requested))
+		return;
+
+	if (priority < I915_PREEMPT_THRESHOLD)
+		return;
+
+	if (hweight32(engine_mask) > 1)
+		return;
+
+	if (!(intel_engine_flag(engine) & engine_mask))
+		return;
+
+	WRITE_ONCE(el->preempt_requested, true);
+	tasklet_kill(&el->irq_tasklet);
+	engine->preempt(engine);
+}
+
 const char *i915_cache_level_str(struct drm_i915_private *i915, int type)
 {
 	switch (type) {

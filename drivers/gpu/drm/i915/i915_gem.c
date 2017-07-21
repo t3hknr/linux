@@ -467,6 +467,7 @@ static void __fence_set_priority(struct dma_fence *fence, int prio)
 {
 	struct drm_i915_gem_request *rq;
 	struct intel_engine_cs *engine;
+	unsigned engine_mask;
 
 	if (!dma_fence_is_i915(fence))
 		return;
@@ -476,7 +477,9 @@ static void __fence_set_priority(struct dma_fence *fence, int prio)
 	if (!engine->schedule)
 		return;
 
-	engine->schedule(rq, prio);
+	engine_mask = engine->schedule(rq, prio);
+
+	intel_engine_preempt(engine, engine_mask, prio);
 }
 
 static void fence_set_priority(struct dma_fence *fence, int prio)

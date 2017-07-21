@@ -900,6 +900,7 @@ void __i915_add_request(struct drm_i915_gem_request *request, bool flush_caches)
 	struct intel_engine_cs *engine = request->engine;
 	struct intel_ring *ring = request->ring;
 	struct intel_timeline *timeline = request->timeline;
+	unsigned engine_mask = 0;
 	struct drm_i915_gem_request *prev;
 	u32 *cs;
 	int err;
@@ -982,11 +983,14 @@ void __i915_add_request(struct drm_i915_gem_request *request, bool flush_caches)
 	 * run at the earliest possible convenience.
 	 */
 	if (engine->schedule)
-		engine->schedule(request, request->ctx->priority);
+		engine_mask = engine->schedule(request, request->ctx->priority);
 
 	local_bh_disable();
 	i915_sw_fence_commit(&request->submit);
 	local_bh_enable(); /* Kick the execlists tasklet if just scheduled */
+
+	intel_engine_preempt(request->engine, engine_mask,
+			     request->priotree.priority);
 }
 
 static unsigned long local_clock_us(unsigned int *cpu)
