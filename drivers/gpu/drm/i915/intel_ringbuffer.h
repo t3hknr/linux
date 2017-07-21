@@ -383,12 +383,14 @@ struct intel_engine_cs {
 	void		(*submit_request)(struct drm_i915_gem_request *req);
 
 	/* Call when the priority on a request has changed and it and its
-	 * dependencies may need rescheduling. Note the request itself may
-	 * not be ready to run!
+	 * dependencies may need rescheduling. We're returning an information
+	 * which engines were affected by rescheduling (that can later be used
+	 * to request preemption).
+	 * Note the request itself may not be ready to run!
 	 *
 	 * Called under the struct_mutex.
 	 */
-	void		(*schedule)(struct drm_i915_gem_request *request,
+	unsigned	(*schedule)(struct drm_i915_gem_request *request,
 				    int priority);
 
 	/*
