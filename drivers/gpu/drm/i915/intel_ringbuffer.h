@@ -828,6 +828,42 @@ static inline u32 *gen8_emit_pipe_control(u32 *batch, u32 flags, u32 offset)
 	return batch + 6;
 }
 
+static inline u32 *
+gen8_emit_ggtt_write_render(u32 gtt_offset, u32 value, u32 *cs)
+{
+	/* We're using qword write, seqno should be aligned to 8 bytes. */
+	BUILD_BUG_ON(I915_GEM_HWS_INDEX & 1);
+
+	/* w/a for post sync ops following a GPGPU operation we
+	 * need a prior CS_STALL, which is emitted by the flush
+	 * following the batch.
+	 */
+	*cs++ = GFX_OP_PIPE_CONTROL(6);
+	*cs++ = PIPE_CONTROL_GLOBAL_GTT_IVB | PIPE_CONTROL_CS_STALL |
+		PIPE_CONTROL_QW_WRITE;
+	*cs++ = gtt_offset;
+	*cs++ = 0;
+	*cs++ = value;
+	/* We're thrashing one dword of HWS. */
+	*cs++ = 0;
+
+	return cs;
+}
+
+static inline u32 *
+gen8_emit_ggtt_write(u32 gtt_offset, u32 value, u32 *cs)
+{
+	/* w/a: bit 5 needs to be zero for MI_FLUSH_DW address. */
+	BUILD_BUG_ON(I915_GEM_HWS_INDEX_ADDR & (1 << 5));
+
+	*cs++ = (MI_FLUSH_DW + 1) | MI_FLUSH_DW_OP_STOREDW;
+	*cs++ = gtt_offset | MI_FLUSH_DW_USE_GTT;
+	*cs++ = 0;
+	*cs++ = value;
+
+	return cs;
+}
+
 bool intel_engine_is_idle(struct intel_engine_cs *engine);
 bool intel_engines_are_idle(struct drm_i915_private *dev_priv);
 
