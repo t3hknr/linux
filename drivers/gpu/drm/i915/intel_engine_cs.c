@@ -1550,7 +1550,7 @@ void execlist_cancel_port_requests(struct intel_engine_execlist * const el)
 {
 	unsigned int i;
 
-	for (i = 0; i < ARRAY_SIZE(el->port); i++)
+	for (i = 0; i < execlist_num_ports(el); i++)
 		i915_gem_request_put(port_request(&el->port[i]));
 
 	memset(el->port, 0, sizeof(el->port));

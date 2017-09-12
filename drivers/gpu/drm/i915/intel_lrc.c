@@ -400,7 +400,7 @@ static void execlists_submit_ports(struct intel_engine_cs *engine)
 		engine->i915->regs + i915_mmio_reg_offset(RING_ELSP(engine));
 	unsigned int n;
 
-	for (n = ARRAY_SIZE(engine->execlist.port); n--; ) {
+	for (n = execlist_num_ports(&engine->execlist); n--; ) {
 		struct drm_i915_gem_request *rq;
 		unsigned int count;
 		u64 desc;
@@ -457,6 +457,8 @@ static void execlists_dequeue(struct intel_engine_cs *engine)
 	struct drm_i915_gem_request *last;
 	struct intel_engine_execlist * const el = &engine->execlist;
 	struct execlist_port *port = el->port;
+	const struct execlist_port * const last_port =
+		&el->port[el->port_mask];
 	struct rb_node *rb;
 	bool submit = false;
 
@@ -516,7 +518,7 @@ static void execlists_dequeue(struct intel_engine_cs *engine)
 				 * combine this request with the last, then we
 				 * are done.
 				 */
-				if (port != el->port) {
+				if (port == last_port) {
 					__list_del_many(&p->requests,
 							&rq->priotree.link);
 					goto done;
@@ -1804,6 +1806,10 @@ logical_ring_setup(struct intel_engine_cs *engine)
 	engine->buffer = NULL;
 
 	engine->csb_use_mmio = irq_handler_force_mmio(dev_priv);
+
+	engine->execlist.port_mask = 1;
+	BUILD_BUG_ON_NOT_POWER_OF_2(execlist_num_ports(&engine->execlist));
+	GEM_BUG_ON(execlist_num_ports(&engine->execlist) > EXECLIST_MAX_PORTS);
 
 	fw_domains = intel_uncore_forcewake_for_reg(dev_priv,
 						    RING_ELSP(engine),
