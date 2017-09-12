@@ -287,21 +287,23 @@ intel_lr_context_descriptor_update(struct i915_gem_context *ctx,
 }
 
 static struct i915_priolist *
-lookup_priolist(struct intel_engine_cs *engine,
+lookup_priolist(struct intel_engine_execlist * const el,
 		struct i915_priotree *pt,
 		int prio)
 {
 	struct i915_priolist *p;
 	struct rb_node **parent, *rb;
 	bool first = true;
+	struct intel_engine_cs *engine =
+		container_of(el, typeof(*engine), execlist);
 
-	if (unlikely(engine->no_priolist))
+	if (unlikely(el->no_priolist))
 		prio = I915_PRIORITY_NORMAL;
 
 find_priolist:
 	/* most positive priority is scheduled first, equal priorities fifo */
 	rb = NULL;
-	parent = &engine->execlist_queue.rb_node;
+	parent = &el->queue.rb_node;
 	while (*parent) {
 		rb = *parent;
 		p = rb_entry(rb, typeof(*p), node);
@@ -316,7 +318,7 @@ find_priolist:
 	}
 
 	if (prio == I915_PRIORITY_NORMAL) {
-		p = &engine->default_priolist;
+		p = &el->default_priolist;
 	} else {
 		p = kmem_cache_alloc(engine->i915->priorities, GFP_ATOMIC);
 		/* Convert an allocation failure to a priority bump */
@@ -331,7 +333,7 @@ find_priolist:
 			 * requests, so if userspace lied about their
 			 * dependencies that reordering may be visible.
 			 */
-			engine->no_priolist = true;
+			el->no_priolist = true;
 			goto find_priolist;
 		}
 	}
@@ -339,10 +341,10 @@ find_priolist:
 	p->priority = prio;
 	INIT_LIST_HEAD(&p->requests);
 	rb_link_node(&p->node, rb, parent);
-	rb_insert_color(&p->node, &engine->execlist_queue);
+	rb_insert_color(&p->node, &el->queue);
 
 	if (first)
-		engine->execlist_first = &p->node;
+		el->first = &p->node;
 
 	return ptr_pack_bits(p, first, 1);
 }
@@ -393,12 +395,12 @@ static u64 execlists_update_context(struct drm_i915_gem_request *rq)
 
 static void execlists_submit_ports(struct intel_engine_cs *engine)
 {
-	struct execlist_port *port = engine->execlist_port;
+	struct execlist_port *port = engine->execlist.port;
 	u32 __iomem *elsp =
 		engine->i915->regs + i915_mmio_reg_offset(RING_ELSP(engine));
 	unsigned int n;
 
-	for (n = ARRAY_SIZE(engine->execlist_port); n--; ) {
+	for (n = ARRAY_SIZE(engine->execlist.port); n--; ) {
 		struct drm_i915_gem_request *rq;
 		unsigned int count;
 		u64 desc;
@@ -453,7 +455,7 @@ static void port_assign(struct execlist_port *port,
 static void execlists_dequeue(struct intel_engine_cs *engine)
 {
 	struct drm_i915_gem_request *last;
-	struct execlist_port *port = engine->execlist_port;
+	struct execlist_port *port = engine->execlist.port;
 	struct rb_node *rb;
 	bool submit = false;
 
@@ -491,8 +493,8 @@ static void execlists_dequeue(struct intel_engine_cs *engine)
 	 */
 
 	spin_lock_irq(&engine->timeline->lock);
-	rb = engine->execlist_first;
-	GEM_BUG_ON(rb_first(&engine->execlist_queue) != rb);
+	rb = engine->execlist.first;
+	GEM_BUG_ON(rb_first(&engine->execlist.queue) != rb);
 	while (rb) {
 		struct i915_priolist *p = rb_entry(rb, typeof(*p), node);
 		struct drm_i915_gem_request *rq, *rn;
@@ -515,7 +517,7 @@ static void execlists_dequeue(struct intel_engine_cs *engine)
 				 * combine this request with the last, then we
 				 * are done.
 				 */
-				if (port != engine->execlist_port) {
+				if (port != engine->execlist.port) {
 					__list_del_many(&p->requests,
 							&rq->priotree.link);
 					goto done;
@@ -552,13 +554,13 @@ static void execlists_dequeue(struct intel_engine_cs *engine)
 		}
 
 		rb = rb_next(rb);
-		rb_erase(&p->node, &engine->execlist_queue);
+		rb_erase(&p->node, &engine->execlist.queue);
 		INIT_LIST_HEAD(&p->requests);
 		if (p->priority != I915_PRIORITY_NORMAL)
 			kmem_cache_free(engine->i915->priorities, p);
 	}
 done:
-	engine->execlist_first = rb;
+	engine->execlist.first = rb;
 	if (submit)
 		port_assign(port, last);
 	spin_unlock_irq(&engine->timeline->lock);
@@ -569,7 +571,7 @@ done:
 
 static void execlists_cancel_requests(struct intel_engine_cs *engine)
 {
-	struct execlist_port *port = engine->execlist_port;
+	struct execlist_port *port = engine->execlist.port;
 	struct drm_i915_gem_request *rq, *rn;
 	struct rb_node *rb;
 	unsigned long flags;
@@ -578,9 +580,9 @@ static void execlists_cancel_requests(struct intel_engine_cs *engine)
 	spin_lock_irqsave(&engine->timeline->lock, flags);
 
 	/* Cancel the requests on the HW and clear the ELSP tracker. */
-	for (n = 0; n < ARRAY_SIZE(engine->execlist_port); n++)
+	for (n = 0; n < ARRAY_SIZE(engine->execlist.port); n++)
 		i915_gem_request_put(port_request(&port[n]));
-	memset(engine->execlist_port, 0, sizeof(engine->execlist_port));
+	memset(engine->execlist.port, 0, sizeof(engine->execlist.port));
 
 	/* Mark all executing requests as skipped. */
 	list_for_each_entry(rq, &engine->timeline->requests, link) {
@@ -590,7 +592,7 @@ static void execlists_cancel_requests(struct intel_engine_cs *engine)
 	}
 
 	/* Flush the queued requests to the timeline list (for retiring). */
-	rb = engine->execlist_first;
+	rb = engine->execlist.first;
 	while (rb) {
 		struct i915_priolist *p = rb_entry(rb, typeof(*p), node);
 
@@ -603,7 +605,7 @@ static void execlists_cancel_requests(struct intel_engine_cs *engine)
 		}
 
 		rb = rb_next(rb);
-		rb_erase(&p->node, &engine->execlist_queue);
+		rb_erase(&p->node, &engine->execlist.queue);
 		INIT_LIST_HEAD(&p->requests);
 		if (p->priority != I915_PRIORITY_NORMAL)
 			kmem_cache_free(engine->i915->priorities, p);
@@ -611,8 +613,8 @@ static void execlists_cancel_requests(struct intel_engine_cs *engine)
 
 	/* Remaining _unready_ requests will be nop'ed when submitted */
 
-	engine->execlist_queue = RB_ROOT;
-	engine->execlist_first = NULL;
+	engine->execlist.queue = RB_ROOT;
+	engine->execlist.first = NULL;
 	GEM_BUG_ON(port_isset(&port[0]));
 
 	/*
@@ -626,9 +628,9 @@ static void execlists_cancel_requests(struct intel_engine_cs *engine)
 	spin_unlock_irqrestore(&engine->timeline->lock, flags);
 }
 
-static bool execlists_elsp_ready(const struct intel_engine_cs *engine)
+static bool execlists_elsp_ready(struct intel_engine_execlist * const el)
 {
-	const struct execlist_port *port = engine->execlist_port;
+	const struct execlist_port *port = el->port;
 
 	return port_count(&port[0]) + port_count(&port[1]) < 2;
 }
@@ -639,8 +641,9 @@ static bool execlists_elsp_ready(const struct intel_engine_cs *engine)
  */
 static void intel_lrc_irq_handler(unsigned long data)
 {
-	struct intel_engine_cs *engine = (struct intel_engine_cs *)data;
-	struct execlist_port *port = engine->execlist_port;
+	struct intel_engine_cs * const engine = (struct intel_engine_cs *)data;
+	struct intel_engine_execlist * const el = &engine->execlist;
+	struct execlist_port *port = el->port;
 	struct drm_i915_private *dev_priv = engine->i915;
 
 	/* We can skip acquiring intel_runtime_pm_get() here as it was taken
@@ -652,7 +655,7 @@ static void intel_lrc_irq_handler(unsigned long data)
 	 */
 	GEM_BUG_ON(!dev_priv->gt.awake);
 
-	intel_uncore_forcewake_get(dev_priv, engine->fw_domains);
+	intel_uncore_forcewake_get(dev_priv, el->fw_domains);
 
 	/* Prefer doing test_and_clear_bit() as a two stage operation to avoid
 	 * imposing the cost of a locked atomic transaction when submitting a
@@ -755,34 +758,35 @@ static void intel_lrc_irq_handler(unsigned long data)
 		}
 	}
 
-	if (execlists_elsp_ready(engine))
+	if (execlists_elsp_ready(el))
 		execlists_dequeue(engine);
 
-	intel_uncore_forcewake_put(dev_priv, engine->fw_domains);
+	intel_uncore_forcewake_put(dev_priv, el->fw_domains);
 }
 
-static void insert_request(struct intel_engine_cs *engine,
+static void insert_request(struct intel_engine_execlist * const el,
 			   struct i915_priotree *pt,
 			   int prio)
 {
-	struct i915_priolist *p = lookup_priolist(engine, pt, prio);
+	struct i915_priolist *p = lookup_priolist(el, pt, prio);
 
 	list_add_tail(&pt->link, &ptr_mask_bits(p, 1)->requests);
-	if (ptr_unmask_bits(p, 1) && execlists_elsp_ready(engine))
-		tasklet_hi_schedule(&engine->irq_tasklet);
+	if (ptr_unmask_bits(p, 1) && execlists_elsp_ready(el))
+		tasklet_hi_schedule(&el->irq_tasklet);
 }
 
 static void execlists_submit_request(struct drm_i915_gem_request *request)
 {
 	struct intel_engine_cs *engine = request->engine;
+	struct intel_engine_execlist * const el = &engine->execlist;
 	unsigned long flags;
 
 	/* Will be called from irq-context when using foreign fences. */
 	spin_lock_irqsave(&engine->timeline->lock, flags);
 
-	insert_request(engine, &request->priotree, request->priotree.priority);
+	insert_request(el, &request->priotree, request->priotree.priority);
 
-	GEM_BUG_ON(!engine->execlist_first);
+	GEM_BUG_ON(!el->first);
 	GEM_BUG_ON(list_empty(&request->priotree.link));
 
 	spin_unlock_irqrestore(&engine->timeline->lock, flags);
@@ -884,7 +888,7 @@ static void execlists_schedule(struct drm_i915_gem_request *request, int prio)
 		pt->priority = prio;
 		if (!list_empty(&pt->link)) {
 			__list_del_entry(&pt->link);
-			insert_request(engine, pt, prio);
+			insert_request(&engine->execlist, pt, prio);
 		}
 	}
 
@@ -1290,7 +1294,6 @@ static int gen8_init_common_ring(struct intel_engine_cs *engine)
 {
 	struct drm_i915_private *dev_priv = engine->i915;
 	int ret;
-
 	ret = intel_mocs_init_engine(engine);
 	if (ret)
 		return ret;
@@ -1324,8 +1327,8 @@ static int gen8_init_common_ring(struct intel_engine_cs *engine)
 	engine->csb_head = -1;
 
 	/* After a GPU reset, we may have requests to replay */
-	if (engine->execlist_first)
-		tasklet_hi_schedule(&engine->irq_tasklet);
+	if (engine->execlist.first)
+		tasklet_hi_schedule(&engine->execlist.irq_tasklet);
 
 	return 0;
 }
@@ -1366,7 +1369,8 @@ static int gen9_init_render_ring(struct intel_engine_cs *engine)
 static void reset_common_ring(struct intel_engine_cs *engine,
 			      struct drm_i915_gem_request *request)
 {
-	struct execlist_port *port = engine->execlist_port;
+	struct intel_engine_execlist * const el = &engine->execlist;
+	struct execlist_port *port = el->port;
 	struct drm_i915_gem_request *rq, *rn;
 	struct intel_context *ce;
 	unsigned long flags;
@@ -1383,9 +1387,9 @@ static void reset_common_ring(struct intel_engine_cs *engine,
 	 * guessing the missed context-switch events by looking at what
 	 * requests were completed.
 	 */
-	for (n = 0; n < ARRAY_SIZE(engine->execlist_port); n++)
+	for (n = 0; n < ARRAY_SIZE(engine->execlist.port); n++)
 		i915_gem_request_put(port_request(&port[n]));
-	memset(engine->execlist_port, 0, sizeof(engine->execlist_port));
+	memset(engine->execlist.port, 0, sizeof(engine->execlist.port));
 
 	/* Push back any incomplete requests for replay after the reset. */
 	list_for_each_entry_safe_reverse(rq, rn,
@@ -1397,7 +1401,7 @@ static void reset_common_ring(struct intel_engine_cs *engine,
 
 		__i915_gem_request_unsubmit(rq);
 
-		p = lookup_priolist(engine,
+		p = lookup_priolist(el,
 				    &rq->priotree,
 				    rq->priotree.priority);
 		list_add(&rq->priotree.link,
@@ -1719,8 +1723,8 @@ void intel_logical_ring_cleanup(struct intel_engine_cs *engine)
 	 * Tasklet cannot be active at this point due intel_mark_active/idle
 	 * so this is just for documentation.
 	 */
-	if (WARN_ON(test_bit(TASKLET_STATE_SCHED, &engine->irq_tasklet.state)))
-		tasklet_kill(&engine->irq_tasklet);
+	if (WARN_ON(test_bit(TASKLET_STATE_SCHED, &engine->execlist.irq_tasklet.state)))
+		tasklet_kill(&engine->execlist.irq_tasklet);
 
 	dev_priv = engine->i915;
 
@@ -1744,7 +1748,7 @@ static void execlists_set_default_submission(struct intel_engine_cs *engine)
 	engine->submit_request = execlists_submit_request;
 	engine->cancel_requests = execlists_cancel_requests;
 	engine->schedule = execlists_schedule;
-	engine->irq_tasklet.func = intel_lrc_irq_handler;
+	engine->execlist.irq_tasklet.func = intel_lrc_irq_handler;
 }
 
 static void
@@ -1820,9 +1824,9 @@ logical_ring_setup(struct intel_engine_cs *engine)
 						     RING_CONTEXT_STATUS_BUF_BASE(engine),
 						     FW_REG_READ);
 
-	engine->fw_domains = fw_domains;
+	engine->execlist.fw_domains = fw_domains;
 
-	tasklet_init(&engine->irq_tasklet,
+	tasklet_init(&engine->execlist.irq_tasklet,
 		     intel_lrc_irq_handler, (unsigned long)engine);
 
 	logical_ring_default_vfuncs(engine);

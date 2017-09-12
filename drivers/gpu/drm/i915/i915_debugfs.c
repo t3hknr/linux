@@ -3346,10 +3346,10 @@ static int i915_engine_info(struct seq_file *m, void *unused)
 			}
 
 			rcu_read_lock();
-			for (idx = 0; idx < ARRAY_SIZE(engine->execlist_port); idx++) {
+			for (idx = 0; idx < ARRAY_SIZE(engine->execlist.port); idx++) {
 				unsigned int count;
 
-				rq = port_unpack(&engine->execlist_port[idx],
+				rq = port_unpack(&engine->execlist.port[idx],
 						 &count);
 				if (rq) {
 					seq_printf(m, "\t\tELSP[%d] count=%d, ",
@@ -3363,7 +3363,7 @@ static int i915_engine_info(struct seq_file *m, void *unused)
 			rcu_read_unlock();
 
 			spin_lock_irq(&engine->timeline->lock);
-			for (rb = engine->execlist_first; rb; rb = rb_next(rb)){
+			for (rb = engine->execlist.first; rb; rb = rb_next(rb)) {
 				struct i915_priolist *p =
 					rb_entry(rb, typeof(*p), node);
 
