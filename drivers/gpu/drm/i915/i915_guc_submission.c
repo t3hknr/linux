@@ -494,17 +494,17 @@ static void i915_guc_submit(struct intel_engine_cs *engine)
 	struct drm_i915_private *dev_priv = engine->i915;
 	struct intel_guc *guc = &dev_priv->guc;
 	struct i915_guc_client *client = guc->execbuf_client;
-	struct execlist_port *port = engine->execlist.port;
 	unsigned int engine_id = engine->id;
+	struct execlist_port *port;
 	unsigned int n;
 
-	for (n = 0; n < execlist_num_ports(&engine->execlist); n++) {
+	for_each_execlist_port(&engine->execlist, port, n) {
 		struct drm_i915_gem_request *rq;
 		unsigned int count;
 
-		rq = port_unpack(&port[n], &count);
+		rq = port_unpack(port, &count);
 		if (rq && count == 0) {
-			port_set(&port[n], port_pack(rq, ++count));
+			port_set(port, port_pack(rq, ++count));
 
 			if (i915_vma_is_map_and_fenceable(rq->ring->vma))
 				POSTING_READ_FW(GUC_STATUS);

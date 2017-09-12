@@ -1548,10 +1548,11 @@ bool intel_engine_can_store_dword(struct intel_engine_cs *engine)
 
 void execlist_cancel_port_requests(struct intel_engine_execlist * const el)
 {
+	struct execlist_port *port;
 	unsigned int i;
 
-	for (i = 0; i < execlist_num_ports(el); i++)
-		i915_gem_request_put(port_request(&el->port[i]));
+	for_each_execlist_port(el, port, i)
+		i915_gem_request_put(port_request(port));
 
 	memset(el->port, 0, sizeof(el->port));
 }

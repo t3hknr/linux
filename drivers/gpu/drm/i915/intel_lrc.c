@@ -395,24 +395,25 @@ static u64 execlists_update_context(struct drm_i915_gem_request *rq)
 
 static void execlists_submit_ports(struct intel_engine_cs *engine)
 {
-	struct execlist_port *port = engine->execlist.port;
-	u32 __iomem *elsp =
+	u32 __iomem * const elsp =
 		engine->i915->regs + i915_mmio_reg_offset(RING_ELSP(engine));
+	struct intel_engine_execlist * const el = &engine->execlist;
+	struct execlist_port *port;
 	unsigned int n;
 
-	for (n = execlist_num_ports(&engine->execlist); n--; ) {
+	for_each_execlist_port_reverse(el, port, n) {
 		struct drm_i915_gem_request *rq;
 		unsigned int count;
 		u64 desc;
 
-		rq = port_unpack(&port[n], &count);
+		rq = port_unpack(port, &count);
 		if (rq) {
 			GEM_BUG_ON(count > !n);
 			if (!count++)
 				execlists_context_status_change(rq, INTEL_CONTEXT_SCHEDULE_IN);
-			port_set(&port[n], port_pack(rq, count));
+			port_set(port, port_pack(rq, count));
 			desc = execlists_update_context(rq);
-			GEM_DEBUG_EXEC(port[n].context_id = upper_32_bits(desc));
+			GEM_DEBUG_EXEC(port->context_id = upper_32_bits(desc));
 		} else {
 			GEM_BUG_ON(!n);
 			desc = 0;
@@ -1808,8 +1809,8 @@ logical_ring_setup(struct intel_engine_cs *engine)
 	engine->csb_use_mmio = irq_handler_force_mmio(dev_priv);
 
 	engine->execlist.port_mask = 1;
-	BUILD_BUG_ON_NOT_POWER_OF_2(execlist_num_ports(&engine->execlist));
-	GEM_BUG_ON(execlist_num_ports(&engine->execlist) > EXECLIST_MAX_PORTS);
+	BUILD_BUG_ON_NOT_POWER_OF_2(engine->execlist.port_mask + 1);
+	GEM_BUG_ON(engine->execlist.port_mask >= EXECLIST_MAX_PORTS);
 
 	fw_domains = intel_uncore_forcewake_for_reg(dev_priv,
 						    RING_ELSP(engine),

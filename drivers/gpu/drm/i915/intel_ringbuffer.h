@@ -510,11 +510,17 @@ struct intel_engine_cs {
 	u32 (*get_cmd_length_mask)(u32 cmd_header);
 };
 
-static inline unsigned int
-execlist_num_ports(const struct intel_engine_execlist * const el)
-{
-	return el->port_mask + 1;
-}
+/* Iterators over elsp ports */
+#define __port_idx(start, i, m) (((start) + (i)) & (m))
+
+#define for_each_execlist_port(el__, port__, n__) \
+	for ((n__) = 0; \
+	     (port__) = &(el__)->port[__port_idx(0, (n__), (el__)->port_mask)], (n__) < (el__)->port_mask + 1; \
+	     (n__)++)
+
+#define for_each_execlist_port_reverse(el__, port__, n__) \
+	for ((n__) = (el__)->port_mask + 1; \
+	     (port__) = &(el__)->port[__port_idx((el__)->port_mask, (n__), (el__)->port_mask)], (n__)--;)
 
 static inline void
 execlist_port_complete(struct intel_engine_execlist * const el,

@@ -3251,6 +3251,7 @@ static int i915_engine_info(struct seq_file *m, void *unused)
 
 	for_each_engine(engine, dev_priv, id) {
 		struct intel_breadcrumbs *b = &engine->breadcrumbs;
+		struct execlist_port *port;
 		struct drm_i915_gem_request *rq;
 		struct rb_node *rb;
 		u64 addr;
@@ -3347,10 +3348,10 @@ static int i915_engine_info(struct seq_file *m, void *unused)
 			}
 
 			rcu_read_lock();
-			for (idx = 0; idx < execlist_num_ports(el); idx++) {
+			for_each_execlist_port(el, port, idx) {
 				unsigned int count;
 
-				rq = port_unpack(&el->port[idx], &count);
+				rq = port_unpack(port, &count);
 				if (rq) {
 					seq_printf(m, "\t\tELSP[%d] count=%d, ",
 						   idx, count);
