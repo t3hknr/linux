@@ -244,6 +244,11 @@ struct intel_engine_execlist {
 	unsigned int port_mask;
 
 	/**
+	 * @port_head: first used execlist port
+	 */
+	unsigned int port_head;
+
+	/**
 	 * @queue: queue of requests, in priority lists
 	 */
 	struct rb_root queue;
@@ -515,23 +520,44 @@ struct intel_engine_cs {
 
 #define for_each_execlist_port(el__, port__, n__) \
 	for ((n__) = 0; \
-	     (port__) = &(el__)->port[__port_idx(0, (n__), (el__)->port_mask)], (n__) < (el__)->port_mask + 1; \
+	     (port__) = &(el__)->port[__port_idx((el__)->port_head, (n__), (el__)->port_mask)], (n__) < (el__)->port_mask + 1; \
 	     (n__)++)
 
 #define for_each_execlist_port_reverse(el__, port__, n__) \
 	for ((n__) = (el__)->port_mask + 1; \
-	     (port__) = &(el__)->port[__port_idx((el__)->port_mask, (n__), (el__)->port_mask)], (n__)--;)
+	     (port__) = &(el__)->port[__port_idx((el__)->port_head - 1, (n__), (el__)->port_mask)], (n__)--;)
 
-static inline void
+static inline struct execlist_port *
+execlist_port_head(struct intel_engine_execlist * const el)
+{
+	return &el->port[el->port_head];
+}
+
+static inline struct execlist_port *
+execlist_port_tail(struct intel_engine_execlist * const el)
+{
+	return &el->port[__port_idx(el->port_head, el->port_mask, el->port_mask)];
+}
+
+static inline struct execlist_port *
+execlist_port_next(struct intel_engine_execlist * const el,
+		   const struct execlist_port * const port)
+{
+	const unsigned int i = port_index(port, el);
+
+	return &el->port[__port_idx(i, 1, el->port_mask)];
+}
+
+static inline struct execlist_port *
 execlist_port_complete(struct intel_engine_execlist * const el,
 		       struct execlist_port * const port)
 {
-	const unsigned int m = el->port_mask;
+	GEM_DEBUG_BUG_ON(port_index(port, el) != el->port_head);
 
-	GEM_DEBUG_BUG_ON(port_index(port, el) != 0);
+	memset(port, 0, sizeof(struct execlist_port));
+	el->port_head = __port_idx(el->port_head, 1, el->port_mask);
 
-	memmove(port, port + 1, m * sizeof(struct execlist_port));
-	memset(port + m, 0, sizeof(struct execlist_port));
+	return execlist_port_head(el);
 }
 
 void execlist_cancel_port_requests(struct intel_engine_execlist * const el);

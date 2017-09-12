@@ -457,9 +457,8 @@ static void execlists_dequeue(struct intel_engine_cs *engine)
 {
 	struct drm_i915_gem_request *last;
 	struct intel_engine_execlist * const el = &engine->execlist;
-	struct execlist_port *port = el->port;
-	const struct execlist_port * const last_port =
-		&el->port[el->port_mask];
+	struct execlist_port *port = execlist_port_head(el);
+	const struct execlist_port * const last_port = execlist_port_tail(el);
 	struct rb_node *rb;
 	bool submit = false;
 
@@ -543,7 +542,8 @@ static void execlists_dequeue(struct intel_engine_cs *engine)
 
 				if (submit)
 					port_assign(port, last);
-				port++;
+
+				port = execlist_port_next(el, port);
 
 				GEM_BUG_ON(port_isset(port));
 			}
@@ -631,9 +631,9 @@ static void execlists_cancel_requests(struct intel_engine_cs *engine)
 
 static bool execlists_elsp_ready(struct intel_engine_execlist * const el)
 {
-	const struct execlist_port *port = el->port;
+	struct execlist_port * const port = execlist_port_head(el);
 
-	return port_count(&port[0]) + port_count(&port[1]) < 2;
+	return port_count(port) + port_count(execlist_port_next(el, port)) < 2;
 }
 
 /*
@@ -644,7 +644,7 @@ static void intel_lrc_irq_handler(unsigned long data)
 {
 	struct intel_engine_cs * const engine = (struct intel_engine_cs *)data;
 	struct intel_engine_execlist * const el = &engine->execlist;
-	struct execlist_port *port = el->port;
+	struct execlist_port *port = execlist_port_head(el);
 	struct drm_i915_private *dev_priv = engine->i915;
 
 	/* We can skip acquiring intel_runtime_pm_get() here as it was taken
@@ -741,7 +741,7 @@ static void intel_lrc_irq_handler(unsigned long data)
 				trace_i915_gem_request_out(rq);
 				i915_gem_request_put(rq);
 
-				execlist_port_complete(el, port);
+				port = execlist_port_complete(el, port);
 			} else {
 				port_set(port, port_pack(rq, count));
 			}

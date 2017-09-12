@@ -1473,7 +1473,7 @@ bool intel_engine_is_idle(struct intel_engine_cs *engine)
 		return false;
 
 	/* Both ports drained, no more ELSP submission? */
-	if (port_request(&engine->execlist.port[0]))
+	if (port_request(execlist_port_head(&engine->execlist)))
 		return false;
 
 	/* ELSP is empty, but there are ready requests? */
@@ -1555,6 +1555,7 @@ void execlist_cancel_port_requests(struct intel_engine_execlist * const el)
 		i915_gem_request_put(port_request(port));
 
 	memset(el->port, 0, sizeof(el->port));
+	el->port_head = 0;
 }
 
 #if IS_ENABLED(CONFIG_DRM_I915_SELFTEST)
