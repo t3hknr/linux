@@ -1808,10 +1808,6 @@ logical_ring_setup(struct intel_engine_cs *engine)
 
 	engine->csb_use_mmio = irq_handler_force_mmio(dev_priv);
 
-	engine->execlist.port_mask = 1;
-	BUILD_BUG_ON_NOT_POWER_OF_2(engine->execlist.port_mask + 1);
-	GEM_BUG_ON(engine->execlist.port_mask >= EXECLIST_MAX_PORTS);
-
 	fw_domains = intel_uncore_forcewake_for_reg(dev_priv,
 						    RING_ELSP(engine),
 						    FW_REG_WRITE);

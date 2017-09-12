@@ -380,6 +380,20 @@ static void intel_engine_init_timeline(struct intel_engine_cs *engine)
 	engine->timeline = &engine->i915->gt.global_timeline.engine[engine->id];
 }
 
+static void intel_engine_init_execlist(struct intel_engine_cs *engine)
+{
+	struct intel_engine_execlist * const el = &engine->execlist;
+
+	el->port_mask = 1;
+	BUILD_BUG_ON_NOT_POWER_OF_2(el->port_mask + 1);
+	GEM_BUG_ON(el->port_mask >= EXECLIST_MAX_PORTS);
+
+	el->port_head = 0;
+
+	el->queue = RB_ROOT;
+	el->first = NULL;
+}
+
 /**
  * intel_engines_setup_common - setup engine state not requiring hw access
  * @engine: Engine to setup.
@@ -391,9 +405,7 @@ static void intel_engine_init_timeline(struct intel_engine_cs *engine)
  */
 void intel_engine_setup_common(struct intel_engine_cs *engine)
 {
-	engine->execlist.queue = RB_ROOT;
-	engine->execlist.first = NULL;
-
+	intel_engine_init_execlist(engine);
 	intel_engine_init_timeline(engine);
 	intel_engine_init_hangcheck(engine);
 	i915_gem_batch_pool_init(engine, &engine->batch_pool);
