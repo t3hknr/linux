@@ -503,6 +503,8 @@ struct intel_engine_cs {
 	u32 (*get_cmd_length_mask)(u32 cmd_header);
 };
 
+void execlist_cancel_port_requests(struct intel_engine_execlist * const el);
+
 static inline unsigned int
 intel_engine_flag(const struct intel_engine_cs *engine)
 {

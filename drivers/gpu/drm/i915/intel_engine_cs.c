@@ -1546,6 +1546,16 @@ bool intel_engine_can_store_dword(struct intel_engine_cs *engine)
 	}
 }
 
+void execlist_cancel_port_requests(struct intel_engine_execlist * const el)
+{
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(el->port); i++)
+		i915_gem_request_put(port_request(&el->port[i]));
+
+	memset(el->port, 0, sizeof(el->port));
+}
+
 #if IS_ENABLED(CONFIG_DRM_I915_SELFTEST)
 #include "selftests/mock_engine.c"
 #endif
