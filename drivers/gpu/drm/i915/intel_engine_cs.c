@@ -389,6 +389,7 @@ static void intel_engine_init_execlist(struct intel_engine_cs *engine)
 	GEM_BUG_ON(el->port_mask >= EXECLIST_MAX_PORTS);
 
 	el->port_head = 0;
+	el->port_count = 0;
 
 	el->queue = RB_ROOT;
 	el->first = NULL;
@@ -1484,8 +1485,8 @@ bool intel_engine_is_idle(struct intel_engine_cs *engine)
 	if (test_bit(ENGINE_IRQ_EXECLIST, &engine->irq_posted))
 		return false;
 
-	/* Both ports drained, no more ELSP submission? */
-	if (port_request(execlist_port_head(&engine->execlist)))
+	/* All ports drained, no more ELSP submission? */
+	if (execlist_active_ports(&engine->execlist))
 		return false;
 
 	/* ELSP is empty, but there are ready requests? */
@@ -1568,6 +1569,7 @@ void execlist_cancel_port_requests(struct intel_engine_execlist * const el)
 
 	memset(el->port, 0, sizeof(el->port));
 	el->port_head = 0;
+	el->port_count = 0;
 }
 
 #if IS_ENABLED(CONFIG_DRM_I915_SELFTEST)

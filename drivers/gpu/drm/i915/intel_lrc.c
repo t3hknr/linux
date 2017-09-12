@@ -401,23 +401,27 @@ static void execlists_submit_ports(struct intel_engine_cs *engine)
 	struct execlist_port *port;
 	unsigned int n;
 
+	for (n = 0; n < execlist_inactive_ports(el); n++) {
+		writel(0, elsp);
+		writel(0, elsp);
+	}
+
 	for_each_execlist_port_reverse(el, port, n) {
 		struct drm_i915_gem_request *rq;
 		unsigned int count;
 		u64 desc;
 
 		rq = port_unpack(port, &count);
-		if (rq) {
-			GEM_BUG_ON(count > !n);
-			if (!count++)
-				execlists_context_status_change(rq, INTEL_CONTEXT_SCHEDULE_IN);
-			port_set(port, port_pack(rq, count));
-			desc = execlists_update_context(rq);
-			GEM_DEBUG_EXEC(port->context_id = upper_32_bits(desc));
-		} else {
-			GEM_BUG_ON(!n);
-			desc = 0;
-		}
+
+		GEM_BUG_ON(!rq);
+		GEM_BUG_ON(count > !n);
+
+		if (!count++)
+			execlists_context_status_change(rq, INTEL_CONTEXT_SCHEDULE_IN);
+
+		port_set(port, port_pack(rq, count));
+		desc = execlists_update_context(rq);
+		GEM_DEBUG_EXEC(port->context_id = upper_32_bits(desc));
 
 		writel(upper_32_bits(desc), elsp);
 		writel(lower_32_bits(desc), elsp);
@@ -455,15 +459,16 @@ static void port_assign(struct execlist_port *port,
 
 static void execlists_dequeue(struct intel_engine_cs *engine)
 {
-	struct drm_i915_gem_request *last;
 	struct intel_engine_execlist * const el = &engine->execlist;
-	struct execlist_port *port = execlist_port_head(el);
-	const struct execlist_port * const last_port = execlist_port_tail(el);
+	struct execlist_port *port;
+	struct drm_i915_gem_request *last;
 	struct rb_node *rb;
 	bool submit = false;
 
-	last = port_request(port);
-	if (last)
+	if (execlist_active_ports(el)) {
+		port = execlist_port_tail(el);
+		last = port_request(port);
+
 		/* WaIdleLiteRestore:bdw,skl
 		 * Apply the wa NOOPs to prevent ring:HEAD == req:TAIL
 		 * as we resubmit the request. See gen8_emit_breadcrumb()
@@ -471,6 +476,10 @@ static void execlists_dequeue(struct intel_engine_cs *engine)
 		 * request.
 		 */
 		last->tail = last->wa_tail;
+	} else {
+		port = NULL;
+		last = NULL;
+	}
 
 	/* Hardware submission is through 2 ports. Conceptually each port
 	 * has a (RING_START, RING_HEAD, RING_TAIL) tuple. RING_START is
@@ -500,6 +509,9 @@ static void execlists_dequeue(struct intel_engine_cs *engine)
 		struct i915_priolist *p = rb_entry(rb, typeof(*p), node);
 		struct drm_i915_gem_request *rq, *rn;
 
+		if (!port)
+			port = execlist_request_port(el);
+
 		list_for_each_entry_safe(rq, rn, &p->requests, priotree.link) {
 			/*
 			 * Can we combine this request with the current port?
@@ -518,7 +530,7 @@ static void execlists_dequeue(struct intel_engine_cs *engine)
 				 * combine this request with the last, then we
 				 * are done.
 				 */
-				if (port == last_port) {
+				if (!execlist_inactive_ports(el)) {
 					__list_del_many(&p->requests,
 							&rq->priotree.link);
 					goto done;
@@ -543,8 +555,7 @@ static void execlists_dequeue(struct intel_engine_cs *engine)
 				if (submit)
 					port_assign(port, last);
 
-				port = execlist_port_next(el, port);
-
+				port = execlist_request_port(el);
 				GEM_BUG_ON(port_isset(port));
 			}
 
@@ -631,9 +642,12 @@ static void execlists_cancel_requests(struct intel_engine_cs *engine)
 
 static bool execlists_elsp_ready(struct intel_engine_execlist * const el)
 {
-	struct execlist_port * const port = execlist_port_head(el);
+	const unsigned int active = execlist_active_ports(el);
 
-	return port_count(port) + port_count(execlist_port_next(el, port)) < 2;
+	if (!active)
+		return true;
+
+	return port_count(execlist_port_tail(el)) + active < 2;
 }
 
 /*
@@ -644,7 +658,6 @@ static void intel_lrc_irq_handler(unsigned long data)
 {
 	struct intel_engine_cs * const engine = (struct intel_engine_cs *)data;
 	struct intel_engine_execlist * const el = &engine->execlist;
-	struct execlist_port *port = execlist_port_head(el);
 	struct drm_i915_private *dev_priv = engine->i915;
 
 	/* We can skip acquiring intel_runtime_pm_get() here as it was taken
@@ -700,6 +713,7 @@ static void intel_lrc_irq_handler(unsigned long data)
 			tail = READ_ONCE(buf[write_idx]);
 		}
 		while (head != tail) {
+			struct execlist_port *port;
 			struct drm_i915_gem_request *rq;
 			unsigned int status;
 			unsigned int count;
@@ -728,6 +742,7 @@ static void intel_lrc_irq_handler(unsigned long data)
 			if (!(status & GEN8_CTX_STATUS_COMPLETED_MASK))
 				continue;
 
+			port = execlist_port_head(el);
 			/* Check the context/desc id for this event matches */
 			GEM_DEBUG_BUG_ON(buf[2 * head + 1] != port->context_id);
 
@@ -741,13 +756,13 @@ static void intel_lrc_irq_handler(unsigned long data)
 				trace_i915_gem_request_out(rq);
 				i915_gem_request_put(rq);
 
-				port = execlist_port_complete(el, port);
+				execlist_release_port(el, port);
 			} else {
 				port_set(port, port_pack(rq, count));
 			}
 
 			/* After the final element, the hw should be idle */
-			GEM_BUG_ON(port_count(port) == 0 &&
+			GEM_BUG_ON(execlist_active_ports(el) == 0 &&
 				   !(status & GEN8_CTX_STATUS_ACTIVE_IDLE));
 		}
 

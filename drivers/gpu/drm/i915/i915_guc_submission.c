@@ -559,14 +559,10 @@ static void port_assign(struct execlist_port *port,
 static void i915_guc_dequeue(struct intel_engine_cs *engine)
 {
 	struct intel_engine_execlist * const el = &engine->execlist;
-	struct execlist_port *port = execlist_port_head(el);
-	const struct execlist_port * const last_port = execlist_port_tail(el);
+	struct execlist_port *port;
 	struct drm_i915_gem_request *last = NULL;
 	bool submit = false;
 	struct rb_node *rb;
-
-	if (port_isset(port))
-		port = execlist_port_next(el, port);
 
 	spin_lock_irq(&engine->timeline->lock);
 	rb = el->first;
@@ -574,10 +570,11 @@ static void i915_guc_dequeue(struct intel_engine_cs *engine)
 	while (rb) {
 		struct i915_priolist *p = rb_entry(rb, typeof(*p), node);
 		struct drm_i915_gem_request *rq, *rn;
+		port = execlist_request_port(el);
 
 		list_for_each_entry_safe(rq, rn, &p->requests, priotree.link) {
 			if (last && rq->ctx != last->ctx) {
-				if (port == last_port) {
+				if (!execlist_inactive_ports(el)) {
 					__list_del_many(&p->requests,
 							&rq->priotree.link);
 					goto done;
@@ -586,7 +583,8 @@ static void i915_guc_dequeue(struct intel_engine_cs *engine)
 				if (submit)
 					port_assign(port, last);
 
-				port = execlist_port_next(el, port);
+				port = execlist_request_port(el);
+				GEM_BUG_ON(port_isset(port));
 			}
 
 			INIT_LIST_HEAD(&rq->priotree.link);
@@ -617,21 +615,25 @@ static void i915_guc_irq_handler(unsigned long data)
 {
 	struct intel_engine_cs * const engine = (struct intel_engine_cs *)data;
 	struct intel_engine_execlist * const el = &engine->execlist;
-	struct execlist_port *port = execlist_port_head(el);
-	const struct execlist_port * const last_port = execlist_port_tail(el);
+	unsigned int num_active = execlist_active_ports(el);
 	struct drm_i915_gem_request *rq;
+	struct execlist_port *port;
 
-	rq = port_request(port);
-	while (rq && i915_gem_request_completed(rq)) {
+	while (num_active--) {
+		port = execlist_port_head(el);
+		rq = port_request(port);
+
+		GEM_BUG_ON(!rq);
+		if (!i915_gem_request_completed(rq))
+			break;
+
 		trace_i915_gem_request_out(rq);
 		i915_gem_request_put(rq);
 
-		port = execlist_port_complete(el, port);
-
-		rq = port_request(port);
+		execlist_release_port(el, port);
 	}
 
-	if (!port_isset(last_port))
+	if (execlist_inactive_ports(el))
 		i915_guc_dequeue(engine);
 }
 
