@@ -1362,7 +1362,7 @@ static int gen8_init_common_ring(struct intel_engine_cs *engine)
 	el->csb_head = -1;
 
 	/* After a GPU reset, we may have requests to replay */
-	if (!i915_modparams.enable_guc_submission && el->first)
+	if (el->first)
 		tasklet_schedule(&el->irq_tasklet);
 
 	return 0;
