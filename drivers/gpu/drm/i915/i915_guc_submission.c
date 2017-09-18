@@ -1174,16 +1174,8 @@ int i915_guc_submission_enable(struct drm_i915_private *dev_priv)
 	/* Take over from manual control of ELSP (execlists) */
 	guc_interrupts_capture(dev_priv);
 
-	for_each_engine(engine, dev_priv, id) {
-		/* The tasklet was initialised by execlists, and may be in
-		 * a state of flux (across a reset) and so we just want to
-		 * take over the callback without changing any other state
-		 * in the tasklet.
-		 */
+	for_each_engine(engine, dev_priv, id)
 		engine->irq_tasklet.func = i915_guc_irq_handler;
-		clear_bit(ENGINE_IRQ_EXECLIST, &engine->irq_posted);
-		tasklet_schedule(&engine->irq_tasklet);
-	}
 
 	return 0;
 
