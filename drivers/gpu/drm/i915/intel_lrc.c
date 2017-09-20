@@ -568,6 +568,16 @@ done:
 		execlists_submit_ports(engine);
 }
 
+static void execlist_cancel_port_requests(struct intel_engine_execlist *el)
+{
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(el->port); i++)
+		i915_gem_request_put(port_request(&el->port[i]));
+
+	memset(el->port, 0, sizeof(el->port));
+}
+
 static void execlists_cancel_requests(struct intel_engine_cs *engine)
 {
 	struct intel_engine_execlist * const el = &engine->execlist;
@@ -575,14 +585,11 @@ static void execlists_cancel_requests(struct intel_engine_cs *engine)
 	struct drm_i915_gem_request *rq, *rn;
 	struct rb_node *rb;
 	unsigned long flags;
-	unsigned long n;
 
 	spin_lock_irqsave(&engine->timeline->lock, flags);
 
 	/* Cancel the requests on the HW and clear the ELSP tracker. */
-	for (n = 0; n < ARRAY_SIZE(el->port); n++)
-		i915_gem_request_put(port_request(&port[n]));
-	memset(el->port, 0, sizeof(el->port));
+	execlist_cancel_port_requests(el);
 
 	/* Mark all executing requests as skipped. */
 	list_for_each_entry(rq, &engine->timeline->requests, link) {
@@ -1372,11 +1379,9 @@ static void reset_common_ring(struct intel_engine_cs *engine,
 			      struct drm_i915_gem_request *request)
 {
 	struct intel_engine_execlist * const el = &engine->execlist;
-	struct execlist_port *port = el->port;
 	struct drm_i915_gem_request *rq, *rn;
 	struct intel_context *ce;
 	unsigned long flags;
-	unsigned int n;
 
 	spin_lock_irqsave(&engine->timeline->lock, flags);
 
@@ -1389,9 +1394,7 @@ static void reset_common_ring(struct intel_engine_cs *engine,
 	 * guessing the missed context-switch events by looking at what
 	 * requests were completed.
 	 */
-	for (n = 0; n < ARRAY_SIZE(el->port); n++)
-		i915_gem_request_put(port_request(&port[n]));
-	memset(el->port, 0, sizeof(el->port));
+	execlist_cancel_port_requests(el);
 
 	/* Push back any incomplete requests for replay after the reset. */
 	list_for_each_entry_safe_reverse(rq, rn,
