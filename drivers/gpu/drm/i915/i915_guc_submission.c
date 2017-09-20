@@ -485,11 +485,13 @@ static void guc_ring_doorbell(struct i915_guc_client *client)
 /**
  * i915_guc_submit() - Submit commands through GuC
  * @engine: engine associated with the commands
+ * @first: index of first execlist port to start coalescing from
  *
  * The only error here arises if the doorbell hardware isn't functioning
  * as expected, which really shouldn't happen.
  */
-static void i915_guc_submit(struct intel_engine_cs *engine)
+static void i915_guc_submit(struct intel_engine_cs *engine,
+			    const unsigned int first)
 {
 	struct drm_i915_private *dev_priv = engine->i915;
 	struct intel_guc *guc = &dev_priv->guc;
@@ -498,7 +500,7 @@ static void i915_guc_submit(struct intel_engine_cs *engine)
 	const unsigned int engine_id = engine->id;
 	unsigned int n;
 
-	for (n = 0; n < execlist_active_ports(el); n++) {
+	for (n = first; n < execlist_active_ports(el); n++) {
 		struct execlist_port *port;
 		struct drm_i915_gem_request *rq;
 		unsigned int count;
@@ -506,21 +508,22 @@ static void i915_guc_submit(struct intel_engine_cs *engine)
 		port = execlist_port_index(el, n);
 
 		rq = port_unpack(port, &count);
-		if (rq && count == 0) {
-			port_set(port, port_pack(rq, ++count));
+		GEM_BUG_ON(!rq);
+		GEM_BUG_ON(count);
 
-			if (i915_vma_is_map_and_fenceable(rq->ring->vma))
-				POSTING_READ_FW(GUC_STATUS);
+		port_set(port, port_pack(rq, ++count));
 
-			spin_lock(&client->wq_lock);
+		if (i915_vma_is_map_and_fenceable(rq->ring->vma))
+			POSTING_READ_FW(GUC_STATUS);
 
-			guc_wq_item_append(client, rq);
-			guc_ring_doorbell(client);
+		spin_lock(&client->wq_lock);
 
-			client->submissions[engine_id] += 1;
+		guc_wq_item_append(client, rq);
+		guc_ring_doorbell(client);
 
-			spin_unlock(&client->wq_lock);
-		}
+		client->submissions[engine_id] += 1;
+
+		spin_unlock(&client->wq_lock);
 	}
 }
 
@@ -566,6 +569,7 @@ static void i915_guc_dequeue(struct intel_engine_cs *engine)
 	struct drm_i915_gem_request *last = NULL;
 	bool submit = false;
 	struct rb_node *rb;
+	unsigned int first_idx;
 
 	spin_lock_irq(&engine->timeline->lock);
 	rb = el->first;
@@ -575,6 +579,7 @@ static void i915_guc_dequeue(struct intel_engine_cs *engine)
 		goto done;
 
 	port = execlist_request_port(el);
+	first_idx = execlist_get_port_index(el, port);
 
 	do {
 		struct i915_priolist *p = rb_entry(rb, typeof(*p), node);
@@ -614,7 +619,7 @@ done:
 	el->first = rb;
 	if (submit) {
 		port_assign(port, last);
-		i915_guc_submit(engine);
+		i915_guc_submit(engine, first_idx);
 	}
 	spin_unlock_irq(&engine->timeline->lock);
 }

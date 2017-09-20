@@ -556,6 +556,15 @@ execlist_port_index(struct intel_engine_execlist * const el,
 	return &el->port[__port_idx(el->port_head, n, el->port_mask)];
 }
 
+static inline unsigned int
+execlist_get_port_index(const struct intel_engine_execlist * const el,
+			const struct execlist_port * const port)
+{
+	const unsigned int n = port_index(port, el);
+
+	return __port_idx(n, -el->port_head, el->port_mask);
+}
+
 static inline struct execlist_port *
 execlist_port_head(struct intel_engine_execlist * const el)
 {
