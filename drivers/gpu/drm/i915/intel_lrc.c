@@ -394,24 +394,27 @@ static u64 execlists_update_context(struct drm_i915_gem_request *rq)
 
 static void execlists_submit_ports(struct intel_engine_cs *engine)
 {
-	struct execlist_port *port = engine->execlist.port;
+	struct intel_engine_execlist * const el = &engine->execlist;
 	u32 __iomem *elsp =
 		engine->i915->regs + i915_mmio_reg_offset(RING_ELSP(engine));
 	unsigned int n;
 
-	for (n = execlist_num_ports(&engine->execlist); n--; ) {
+	for (n = execlist_num_ports(el); n--; ) {
+		struct execlist_port *port;
 		struct drm_i915_gem_request *rq;
 		unsigned int count;
 		u64 desc;
 
-		rq = port_unpack(&port[n], &count);
+		port = execlist_port_index(el, n);
+
+		rq = port_unpack(port, &count);
 		if (rq) {
 			GEM_BUG_ON(count > !n);
 			if (!count++)
 				execlists_context_status_change(rq, INTEL_CONTEXT_SCHEDULE_IN);
-			port_set(&port[n], port_pack(rq, count));
+			port_set(port, port_pack(rq, count));
 			desc = execlists_update_context(rq);
-			GEM_DEBUG_EXEC(port[n].context_id = upper_32_bits(desc));
+			GEM_DEBUG_EXEC(port->context_id = upper_32_bits(desc));
 		} else {
 			GEM_BUG_ON(!n);
 			desc = 0;
@@ -455,9 +458,8 @@ static void execlists_dequeue(struct intel_engine_cs *engine)
 {
 	struct drm_i915_gem_request *last;
 	struct intel_engine_execlist * const el = &engine->execlist;
-	struct execlist_port *port = el->port;
-	const struct execlist_port * const last_port =
-		&el->port[el->port_mask];
+	struct execlist_port *port = execlist_port_head(el);
+	const struct execlist_port * const last_port = execlist_port_tail(el);
 	struct rb_node *rb;
 	bool submit = false;
 
@@ -541,7 +543,8 @@ static void execlists_dequeue(struct intel_engine_cs *engine)
 
 				if (submit)
 					port_assign(port, last);
-				port++;
+
+				port = execlist_port_next(el, port);
 
 				GEM_BUG_ON(port_isset(port));
 			}
@@ -638,11 +641,12 @@ static void execlists_cancel_requests(struct intel_engine_cs *engine)
 	spin_unlock_irqrestore(&engine->timeline->lock, flags);
 }
 
-static bool execlists_elsp_ready(const struct intel_engine_cs *engine)
+static bool execlists_elsp_ready(struct intel_engine_execlist * const el)
 {
-	const struct execlist_port *port = engine->execlist.port;
+	struct execlist_port * const port0 = execlist_port_head(el);
+	struct execlist_port * const port1 = execlist_port_next(el, port0);
 
-	return port_count(&port[0]) + port_count(&port[1]) < 2;
+	return port_count(port0) + port_count(port1) < 2;
 }
 
 /*
@@ -653,7 +657,7 @@ static void intel_lrc_irq_handler(unsigned long data)
 {
 	struct intel_engine_cs * const engine = (struct intel_engine_cs *)data;
 	struct intel_engine_execlist * const el = &engine->execlist;
-	struct execlist_port *port = el->port;
+	struct execlist_port *port = execlist_port_head(el);
 	struct drm_i915_private *dev_priv = engine->i915;
 
 	/* We can skip acquiring intel_runtime_pm_get() here as it was taken
@@ -751,7 +755,7 @@ static void intel_lrc_irq_handler(unsigned long data)
 				trace_i915_gem_request_out(rq);
 				i915_gem_request_put(rq);
 
-				execlist_port_complete(el, port);
+				port = execlist_port_complete(el, port);
 			} else {
 				port_set(port, port_pack(rq, count));
 			}
@@ -768,7 +772,7 @@ static void intel_lrc_irq_handler(unsigned long data)
 		}
 	}
 
-	if (execlists_elsp_ready(engine))
+	if (execlists_elsp_ready(el))
 		execlists_dequeue(engine);
 
 	intel_uncore_forcewake_put(dev_priv, el->fw_domains);
@@ -778,16 +782,18 @@ static void insert_request(struct intel_engine_cs *engine,
 			   struct i915_priotree *pt,
 			   int prio)
 {
+	struct intel_engine_execlist * const el = &engine->execlist;
 	struct i915_priolist *p = lookup_priolist(engine, pt, prio);
 
 	list_add_tail(&pt->link, &ptr_mask_bits(p, 1)->requests);
-	if (ptr_unmask_bits(p, 1) && execlists_elsp_ready(engine))
-		tasklet_hi_schedule(&engine->execlist.irq_tasklet);
+	if (ptr_unmask_bits(p, 1) && execlists_elsp_ready(el))
+		tasklet_hi_schedule(&el->irq_tasklet);
 }
 
 static void execlists_submit_request(struct drm_i915_gem_request *request)
 {
 	struct intel_engine_cs *engine = request->engine;
+	struct intel_engine_execlist * const el = &engine->execlist;
 	unsigned long flags;
 
 	/* Will be called from irq-context when using foreign fences. */
@@ -795,7 +801,7 @@ static void execlists_submit_request(struct drm_i915_gem_request *request)
 
 	insert_request(engine, &request->priotree, request->priotree.priority);
 
-	GEM_BUG_ON(!engine->execlist.first);
+	GEM_BUG_ON(!el->first);
 	GEM_BUG_ON(list_empty(&request->priotree.link));
 
 	spin_unlock_irqrestore(&engine->timeline->lock, flags);

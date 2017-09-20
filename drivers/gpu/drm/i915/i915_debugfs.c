@@ -3348,16 +3348,20 @@ static int i915_engine_info(struct seq_file *m, void *unused)
 
 			rcu_read_lock();
 			for (idx = 0; idx < execlist_num_ports(el); idx++) {
-				unsigned int count;
+				const struct execlist_port *port;
+				unsigned int count, n;
 
-				rq = port_unpack(&el->port[idx], &count);
+				port = execlist_port_index(el, idx);
+				n = port_index(port, el);
+
+				rq = port_unpack(port, &count);
 				if (rq) {
-					seq_printf(m, "\t\tELSP[%d] count=%d, ",
-						   idx, count);
+					seq_printf(m, "\t\tELSP[%d:%d] count=%d, ",
+						   idx, n, count);
 					print_request(m, rq, "rq: ");
 				} else {
-					seq_printf(m, "\t\tELSP[%d] idle\n",
-						   idx);
+					seq_printf(m, "\t\tELSP[%d:%d] idle\n",
+						   idx, n);
 				}
 			}
 			rcu_read_unlock();

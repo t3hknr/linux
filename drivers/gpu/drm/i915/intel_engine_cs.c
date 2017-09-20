@@ -1504,7 +1504,7 @@ bool intel_engine_is_idle(struct intel_engine_cs *engine)
 		return false;
 
 	/* Both ports drained, no more ELSP submission? */
-	if (port_request(&engine->execlist.port[0]))
+	if (port_request(execlist_port_head(&engine->execlist)))
 		return false;
 
 	/* ELSP is empty, but there are ready requests? */

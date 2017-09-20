@@ -562,8 +562,7 @@ static void i915_guc_dequeue(struct intel_engine_cs *engine)
 	struct intel_engine_execlist * const el = &engine->execlist;
 	struct execlist_port *port = el->port;
 	struct drm_i915_gem_request *last = NULL;
-	const struct execlist_port * const last_port =
-		&el->port[el->port_mask];
+	const struct execlist_port * const last_port = execlist_port_tail(el);
 	bool submit = false;
 	struct rb_node *rb;
 
@@ -587,7 +586,8 @@ static void i915_guc_dequeue(struct intel_engine_cs *engine)
 
 				if (submit)
 					port_assign(port, last);
-				port++;
+
+				port = execlist_port_next(el, port);
 			}
 
 			INIT_LIST_HEAD(&rq->priotree.link);
@@ -618,19 +618,18 @@ static void i915_guc_irq_handler(unsigned long data)
 {
 	struct intel_engine_cs * const engine = (struct intel_engine_cs *)data;
 	struct intel_engine_execlist * const el = &engine->execlist;
-	struct execlist_port *port = el->port;
-	const struct execlist_port * const last_port =
-		&el->port[el->port_mask];
+	struct execlist_port *port = execlist_port_head(el);
+	const struct execlist_port * const last_port = execlist_port_tail(el);
 	struct drm_i915_gem_request *rq;
 
-	rq = port_request(&port[0]);
+	rq = port_request(port);
 	while (rq && i915_gem_request_completed(rq)) {
 		trace_i915_gem_request_out(rq);
 		i915_gem_request_put(rq);
 
-		execlist_port_complete(el, port);
+		port = execlist_port_complete(el, port);
 
-		rq = port_request(&port[0]);
+		rq = port_request(port);
 	}
 
 	if (!port_isset(last_port))

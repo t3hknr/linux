@@ -1332,11 +1332,11 @@ static void engine_record_requests(struct intel_engine_cs *engine,
 static void error_record_engine_execlists(struct intel_engine_cs *engine,
 					  struct drm_i915_error_engine *ee)
 {
-	const struct intel_engine_execlist * const el = &engine->execlist;
+	struct intel_engine_execlist * const el = &engine->execlist;
 	unsigned int n;
 
 	for (n = 0; n < execlist_num_ports(el); n++) {
-		struct drm_i915_gem_request *rq = port_request(&el->port[n]);
+		struct drm_i915_gem_request *rq = port_request(execlist_port_index(el, n));
 
 		if (!rq)
 			break;

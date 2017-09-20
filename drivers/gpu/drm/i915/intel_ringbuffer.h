@@ -244,6 +244,11 @@ struct intel_engine_execlist {
 	unsigned int port_mask;
 
 	/**
+	 * @port_head: first used execlist port
+	 */
+	unsigned int port_head;
+
+	/**
 	 * @queue: queue of requests, in priority lists
 	 */
 	struct rb_root queue;
@@ -524,16 +529,47 @@ execlist_num_ports(const struct intel_engine_execlist * const el)
 	return el->port_mask + 1;
 }
 
-static inline void
+#define __port_idx(start, index, mask) (((start) + (index)) & (mask))
+
+static inline struct execlist_port *
+execlist_port_head(struct intel_engine_execlist * const el)
+{
+	return &el->port[el->port_head];
+}
+
+/* Index starting from port_head */
+static inline struct execlist_port *
+execlist_port_index(struct intel_engine_execlist * const el,
+		    const unsigned int n)
+{
+	return &el->port[__port_idx(el->port_head, n, el->port_mask)];
+}
+
+static inline struct execlist_port *
+execlist_port_tail(struct intel_engine_execlist * const el)
+{
+	return &el->port[__port_idx(el->port_head, -1, el->port_mask)];
+}
+
+static inline struct execlist_port *
+execlist_port_next(struct intel_engine_execlist * const el,
+		   const struct execlist_port * const port)
+{
+	const unsigned int i = port_index(port, el);
+
+	return &el->port[__port_idx(i, 1, el->port_mask)];
+}
+
+static inline struct execlist_port *
 execlist_port_complete(struct intel_engine_execlist * const el,
 		       struct execlist_port * const port)
 {
-	const unsigned int m = el->port_mask;
+	GEM_BUG_ON(port_index(port, el) != el->port_head);
 
-	GEM_BUG_ON(port_index(port, el) != 0);
+	memset(port, 0, sizeof(struct execlist_port));
+	el->port_head = __port_idx(el->port_head, 1, el->port_mask);
 
-	memmove(port, port + 1, m * sizeof(struct execlist_port));
-	memset(port + m, 0, sizeof(struct execlist_port));
+	return execlist_port_head(el);
 }
 
 static inline unsigned int
