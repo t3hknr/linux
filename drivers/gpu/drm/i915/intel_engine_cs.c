@@ -405,6 +405,10 @@ static void intel_engine_init_execlist(struct intel_engine_cs *engine)
 
 	el->csb_use_mmio = csb_force_mmio(engine->i915);
 
+	engine->execlist.port_mask = 1;
+	BUILD_BUG_ON_NOT_POWER_OF_2(execlist_num_ports(&engine->execlist));
+	GEM_BUG_ON(execlist_num_ports(&engine->execlist) > EXECLIST_MAX_PORTS);
+
 	el->queue = RB_ROOT;
 	el->first = NULL;
 }

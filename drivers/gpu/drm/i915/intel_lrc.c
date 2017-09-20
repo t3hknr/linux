@@ -399,7 +399,7 @@ static void execlists_submit_ports(struct intel_engine_cs *engine)
 		engine->i915->regs + i915_mmio_reg_offset(RING_ELSP(engine));
 	unsigned int n;
 
-	for (n = ARRAY_SIZE(engine->execlist.port); n--; ) {
+	for (n = execlist_num_ports(&engine->execlist); n--; ) {
 		struct drm_i915_gem_request *rq;
 		unsigned int count;
 		u64 desc;
@@ -456,6 +456,8 @@ static void execlists_dequeue(struct intel_engine_cs *engine)
 	struct drm_i915_gem_request *last;
 	struct intel_engine_execlist * const el = &engine->execlist;
 	struct execlist_port *port = el->port;
+	const struct execlist_port * const last_port =
+		&el->port[el->port_mask];
 	struct rb_node *rb;
 	bool submit = false;
 
@@ -515,7 +517,7 @@ static void execlists_dequeue(struct intel_engine_cs *engine)
 				 * combine this request with the last, then we
 				 * are done.
 				 */
-				if (port != el->port) {
+				if (port == last_port) {
 					__list_del_many(&p->requests,
 							&rq->priotree.link);
 					goto done;
