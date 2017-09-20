@@ -1350,7 +1350,7 @@ gen8_cs_irq_handler(struct intel_engine_cs *engine, u32 iir, int test_shift)
 	bool tasklet = false;
 
 	if (iir & (GT_CONTEXT_SWITCH_INTERRUPT << test_shift)) {
-		if (port_count(execlist_port_head(el))) {
+		if (READ_ONCE(el->port_count)) {
 			__set_bit(ENGINE_IRQ_EXECLIST, &engine->irq_posted);
 			tasklet = true;
 		}

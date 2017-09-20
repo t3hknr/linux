@@ -487,7 +487,7 @@ static void guc_ring_doorbell(struct i915_guc_client *client)
  * @engine: engine associated with the commands
  *
  * The only error here arises if the doorbell hardware isn't functioning
- * as expected, which really shouln't happen.
+ * as expected, which really shouldn't happen.
  */
 static void i915_guc_submit(struct intel_engine_cs *engine)
 {
@@ -495,17 +495,19 @@ static void i915_guc_submit(struct intel_engine_cs *engine)
 	struct intel_guc *guc = &dev_priv->guc;
 	struct i915_guc_client *client = guc->execbuf_client;
 	struct intel_engine_execlist * const el = &engine->execlist;
-	struct execlist_port *port = el->port;
 	const unsigned int engine_id = engine->id;
 	unsigned int n;
 
-	for (n = 0; n < ARRAY_SIZE(el->port); n++) {
+	for (n = 0; n < execlist_active_ports(el); n++) {
+		struct execlist_port *port;
 		struct drm_i915_gem_request *rq;
 		unsigned int count;
 
-		rq = port_unpack(&port[n], &count);
+		port = execlist_port_index(el, n);
+
+		rq = port_unpack(port, &count);
 		if (rq && count == 0) {
-			port_set(&port[n], port_pack(rq, ++count));
+			port_set(port, port_pack(rq, ++count));
 
 			if (i915_vma_is_map_and_fenceable(rq->ring->vma))
 				POSTING_READ_FW(GUC_STATUS);
@@ -560,25 +562,27 @@ static void port_assign(struct execlist_port *port,
 static void i915_guc_dequeue(struct intel_engine_cs *engine)
 {
 	struct intel_engine_execlist * const el = &engine->execlist;
-	struct execlist_port *port = el->port;
+	struct execlist_port *port;
 	struct drm_i915_gem_request *last = NULL;
-	const struct execlist_port * const last_port = execlist_port_tail(el);
 	bool submit = false;
 	struct rb_node *rb;
-
-	if (port_isset(port))
-		port++;
 
 	spin_lock_irq(&engine->timeline->lock);
 	rb = el->first;
 	GEM_BUG_ON(rb_first(&el->queue) != rb);
-	while (rb) {
+
+	if (unlikely(!rb))
+		goto done;
+
+	port = execlist_request_port(el);
+
+	do {
 		struct i915_priolist *p = rb_entry(rb, typeof(*p), node);
 		struct drm_i915_gem_request *rq, *rn;
 
 		list_for_each_entry_safe(rq, rn, &p->requests, priotree.link) {
 			if (last && rq->ctx != last->ctx) {
-				if (port == last_port) {
+				if (!execlist_inactive_ports(el)) {
 					__list_del_many(&p->requests,
 							&rq->priotree.link);
 					goto done;
@@ -587,7 +591,8 @@ static void i915_guc_dequeue(struct intel_engine_cs *engine)
 				if (submit)
 					port_assign(port, last);
 
-				port = execlist_port_next(el, port);
+				port = execlist_request_port(el);
+				GEM_BUG_ON(port_isset(port));
 			}
 
 			INIT_LIST_HEAD(&rq->priotree.link);
@@ -604,7 +609,7 @@ static void i915_guc_dequeue(struct intel_engine_cs *engine)
 		INIT_LIST_HEAD(&p->requests);
 		if (p->priority != I915_PRIORITY_NORMAL)
 			kmem_cache_free(engine->i915->priorities, p);
-	}
+	} while (rb);
 done:
 	el->first = rb;
 	if (submit) {
@@ -618,21 +623,21 @@ static void i915_guc_irq_handler(unsigned long data)
 {
 	struct intel_engine_cs * const engine = (struct intel_engine_cs *)data;
 	struct intel_engine_execlist * const el = &engine->execlist;
-	struct execlist_port *port = execlist_port_head(el);
-	const struct execlist_port * const last_port = execlist_port_tail(el);
-	struct drm_i915_gem_request *rq;
 
-	rq = port_request(port);
-	while (rq && i915_gem_request_completed(rq)) {
+	while (execlist_active_ports(el)) {
+		struct execlist_port *port = execlist_port_head(el);
+		struct drm_i915_gem_request *rq = port_request(port);
+
+		if (!i915_gem_request_completed(rq))
+			break;
+
 		trace_i915_gem_request_out(rq);
 		i915_gem_request_put(rq);
 
-		port = execlist_port_complete(el, port);
-
-		rq = port_request(port);
+		execlist_release_port(el, port);
 	}
 
-	if (!port_isset(last_port))
+	if (execlist_inactive_ports(el))
 		i915_guc_dequeue(engine);
 }
 

@@ -249,6 +249,11 @@ struct intel_engine_execlist {
 	unsigned int port_head;
 
 	/**
+	 * @port_count: reserved ports
+	 */
+	unsigned int port_count;
+
+	/**
 	 * @queue: queue of requests, in priority lists
 	 */
 	struct rb_root queue;
@@ -529,13 +534,19 @@ execlist_num_ports(const struct intel_engine_execlist * const el)
 	return el->port_mask + 1;
 }
 
-#define __port_idx(start, index, mask) (((start) + (index)) & (mask))
-
-static inline struct execlist_port *
-execlist_port_head(struct intel_engine_execlist * const el)
+static inline unsigned int
+execlist_active_ports(const struct intel_engine_execlist * const el)
 {
-	return &el->port[el->port_head];
+	return el->port_count;
 }
+
+static inline unsigned int
+execlist_inactive_ports(const struct intel_engine_execlist * const el)
+{
+	return execlist_num_ports(el) - execlist_active_ports(el);
+}
+
+#define __port_idx(start, index, mask) (((start) + (index)) & (mask))
 
 /* Index starting from port_head */
 static inline struct execlist_port *
@@ -546,30 +557,46 @@ execlist_port_index(struct intel_engine_execlist * const el,
 }
 
 static inline struct execlist_port *
+execlist_port_head(struct intel_engine_execlist * const el)
+{
+	GEM_BUG_ON(!el->port_count);
+
+	return execlist_port_index(el, 0);
+}
+
+static inline struct execlist_port *
 execlist_port_tail(struct intel_engine_execlist * const el)
 {
-	return &el->port[__port_idx(el->port_head, -1, el->port_mask)];
+	GEM_BUG_ON(!el->port_count);
+
+	return execlist_port_index(el, el->port_count - 1);
 }
 
 static inline struct execlist_port *
-execlist_port_next(struct intel_engine_execlist * const el,
-		   const struct execlist_port * const port)
+execlist_request_port(struct intel_engine_execlist * const el)
 {
-	const unsigned int i = port_index(port, el);
+	GEM_BUG_ON(el->port_count == el->port_mask + 1);
 
-	return &el->port[__port_idx(i, 1, el->port_mask)];
+	el->port_count++;
+
+	GEM_BUG_ON(port_isset(execlist_port_tail(el)));
+
+	return execlist_port_tail(el);
 }
 
-static inline struct execlist_port *
-execlist_port_complete(struct intel_engine_execlist * const el,
-		       struct execlist_port * const port)
+static inline void
+execlist_release_port(struct intel_engine_execlist * const el,
+		      struct execlist_port * const port)
 {
+
 	GEM_BUG_ON(port_index(port, el) != el->port_head);
+	GEM_BUG_ON(!port_isset(port));
+	GEM_BUG_ON(!el->port_count);
 
 	memset(port, 0, sizeof(struct execlist_port));
-	el->port_head = __port_idx(el->port_head, 1, el->port_mask);
 
-	return execlist_port_head(el);
+	el->port_head = __port_idx(el->port_head, 1, el->port_mask);
+	el->port_count--;
 }
 
 static inline unsigned int
