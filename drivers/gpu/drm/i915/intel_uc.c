@@ -308,8 +308,12 @@ static void guc_free_load_err_log(struct intel_guc *guc)
 static int guc_enable_communication(struct intel_guc *guc)
 {
 	struct drm_i915_private *dev_priv = guc_to_i915(guc);
+	struct i915_gem_context *ctx = dev_priv->kernel_context;
 
 	guc_init_send_regs(guc);
+
+	guc->shared_data_offset = guc_ggtt_offset(ctx->engine[RCS].state) +
+		LRC_GUCSHR_PN * PAGE_SIZE;
 
 	if (HAS_GUC_CT(dev_priv))
 		return intel_guc_enable_ct(guc);
