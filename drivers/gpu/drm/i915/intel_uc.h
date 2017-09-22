@@ -187,6 +187,9 @@ struct intel_guc {
 	/* To serialize the intel_guc_send actions */
 	struct mutex send_mutex;
 
+	/* Kernel context state ggtt offset, first page is shared with GuC */
+	u32 shared_data_offset;
+
 	/* GuC's FW specific send function */
 	int (*send)(struct intel_guc *guc, const u32 *data, u32 len);
 
