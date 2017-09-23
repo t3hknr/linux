@@ -460,14 +460,70 @@ void intel_uc_fini_hw(struct drm_i915_private *dev_priv)
 	i915_ggtt_disable_guc(dev_priv);
 }
 
+/**
+ * intel_uc_runtime_suspend() - Suspend uC operation.
+ * @dev_priv: i915 device private
+ *
+ * This function invokes GuC OS suspension, makes ggtt_invalidate function to
+ * point to non-GuC variant, disables GuC interrupts and disable communication
+ * with GuC.
+ *
+ * Return:	non-zero code on error
+ */
 int intel_uc_runtime_suspend(struct drm_i915_private *dev_priv)
 {
-	return intel_guc_suspend(dev_priv);
+	int ret;
+
+	if (!i915_modparams.enable_guc_loading)
+		return 0;
+
+	ret = intel_guc_suspend(dev_priv);
+	if (ret)
+		goto out;
+
+	i915_ggtt_disable_guc(dev_priv);
+	gen9_disable_guc_interrupts(dev_priv);
+	guc_disable_communication(&dev_priv->guc);
+
+out:
+	if (ret)
+		DRM_ERROR("uC runtime suspend failed (%d)\n", ret);
+	return ret;
 }
 
+/**
+ * intel_uc_runtime_resume() - Resume uC operation.
+ * @dev_priv: i915 device private
+ *
+ * This function enables communication with GuC, enables GuC interrupts,
+ * makes ggtt_invalidate function to point to GuC variant and invokes
+ * GuC OS resumption.
+ *
+ * Return:	non-zero code on error
+ */
 int intel_uc_runtime_resume(struct drm_i915_private *dev_priv)
 {
-	return intel_guc_resume(dev_priv);
+	int ret;
+
+	if (!i915_modparams.enable_guc_loading)
+		return 0;
+
+	ret = guc_enable_communication(&dev_priv->guc);
+	if (ret)
+		goto out;
+
+	if (i915_modparams.guc_log_level >= 0)
+		gen9_enable_guc_interrupts(dev_priv);
+	i915_ggtt_enable_guc(dev_priv);
+
+	ret = intel_guc_resume(dev_priv);
+	if (ret)
+		goto out;
+
+out:
+	if (ret)
+		DRM_ERROR("uC runtime resume failed (%d)\n", ret);
+	return ret;
 }
 
 int intel_uc_suspend(struct drm_i915_private *dev_priv)
