@@ -1698,8 +1698,6 @@ static int i915_drm_resume(struct drm_device *dev)
 	}
 	mutex_unlock(&dev->struct_mutex);
 
-	intel_guc_resume(dev_priv);
-
 	intel_modeset_init_hw(dev);
 
 	spin_lock_irq(&dev_priv->irq_lock);
@@ -2504,8 +2502,6 @@ static int intel_runtime_suspend(struct device *kdev)
 		return ret;
 	}
 
-	intel_guc_suspend(dev_priv);
-
 	intel_runtime_pm_disable_interrupts(dev_priv);
 
 	ret = 0;
@@ -2590,8 +2586,6 @@ static int intel_runtime_resume(struct device *kdev)
 	dev_priv->pm.suspended = false;
 	if (intel_uncore_unclaimed_mmio(dev_priv))
 		DRM_DEBUG_DRIVER("Unclaimed access during suspend, bios?\n");
-
-	intel_guc_resume(dev_priv);
 
 	if (IS_GEN9_LP(dev_priv)) {
 		bxt_disable_dc9(dev_priv);

@@ -2022,10 +2022,21 @@ out:
 	intel_runtime_pm_put(i915);
 }
 
+/**
+ * i915_gem_runtime_suspend() - Finish GEM suspend
+ * @dev_priv: i915 device private
+ *
+ * This function suspends GuC, removes userspace mappings for all GEM obejcts
+ * currently on userfault list and marks fences if any being used as lost.
+ *
+ * Return:	non-zero code on error
+ */
 int i915_gem_runtime_suspend(struct drm_i915_private *dev_priv)
 {
 	struct drm_i915_gem_object *obj, *on;
 	int i;
+
+	intel_guc_suspend(dev_priv);
 
 	/*
 	 * Only called during RPM suspend. All users of the userfault_list
@@ -2069,6 +2080,14 @@ int i915_gem_runtime_suspend(struct drm_i915_private *dev_priv)
 	return 0;
 }
 
+/**
+ * i915_gem_runtime_resume() - Restore GEM state
+ * @dev_priv: i915 device private
+ *
+ * This function inits swizzling, restores fences and resumes GuC.
+ *
+ * Return:	non-zero code on error
+ */
 int i915_gem_runtime_resume(struct drm_i915_private *dev_priv)
 {
 	/*
@@ -2077,6 +2096,8 @@ int i915_gem_runtime_resume(struct drm_i915_private *dev_priv)
 	 */
 	i915_gem_init_swizzling(dev_priv);
 	i915_gem_restore_fences(dev_priv);
+
+	intel_guc_resume(dev_priv);
 
 	return 0;
 }
@@ -4521,6 +4542,16 @@ void i915_gem_sanitize(struct drm_i915_private *i915)
 	}
 }
 
+/**
+ * i915_gem_suspend() - Suspend all GT activity.
+ * @dev_priv: i915 device private
+ *
+ * This function disables RPS, flushes all executing context ensuring
+ * GEM/GT/Engines idleness, cancels all work that needs GT access and suspends
+ * GuC. In the end currently, it also reset the GEM state and GPU HW.
+ *
+ * Return:	non-zero code on error
+ */
 int i915_gem_suspend(struct drm_i915_private *dev_priv)
 {
 	struct drm_device *dev = &dev_priv->drm;
@@ -4553,8 +4584,6 @@ int i915_gem_suspend(struct drm_i915_private *dev_priv)
 	i915_gem_contexts_lost(dev_priv);
 	mutex_unlock(&dev->struct_mutex);
 
-	intel_guc_suspend(dev_priv);
-
 	cancel_delayed_work_sync(&dev_priv->gpu_error.hangcheck_work);
 	cancel_delayed_work_sync(&dev_priv->gt.retire_work);
 
@@ -4570,6 +4599,8 @@ int i915_gem_suspend(struct drm_i915_private *dev_priv)
 	WARN_ON(dev_priv->gt.awake);
 	if (WARN_ON(!intel_engines_are_idle(dev_priv)))
 		i915_gem_set_wedged(dev_priv); /* no hope, discard everything */
+
+	intel_guc_suspend(dev_priv);
 
 	/*
 	 * Neither the BIOS, ourselves or any other kernel
@@ -4601,6 +4632,15 @@ err_unlock:
 	return ret;
 }
 
+/**
+ * i915_gem_resume() - Resume GT activity.
+ * @dev_priv: i915 device private
+ *
+ * This function restores GTT mappings, restores fences and resets the
+ * context images and resumes GuC.
+ *
+ * Return:	non-zero code on error
+ */
 int i915_gem_resume(struct drm_i915_private *dev_priv)
 {
 	struct drm_device *dev = &dev_priv->drm;
@@ -4609,13 +4649,14 @@ int i915_gem_resume(struct drm_i915_private *dev_priv)
 
 	mutex_lock(&dev->struct_mutex);
 	i915_gem_restore_gtt_mappings(dev_priv);
+	i915_gem_restore_fences(dev_priv);
 
 	/* As we didn't flush the kernel context before suspend, we cannot
 	 * guarantee that the context image is complete. So let's just reset
 	 * it and start again.
 	 */
 	dev_priv->gt.resume(dev_priv);
-
+	intel_guc_resume(dev_priv);
 	mutex_unlock(&dev->struct_mutex);
 
 	return 0;
