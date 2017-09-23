@@ -460,6 +460,28 @@ void intel_uc_fini_hw(struct drm_i915_private *dev_priv)
 	i915_ggtt_disable_guc(dev_priv);
 }
 
+int intel_uc_runtime_suspend(struct drm_i915_private *dev_priv)
+{
+	return intel_guc_suspend(dev_priv);
+}
+
+int intel_uc_runtime_resume(struct drm_i915_private *dev_priv)
+{
+	return intel_guc_resume(dev_priv);
+}
+
+int intel_uc_suspend(struct drm_i915_private *dev_priv)
+{
+	return intel_guc_suspend(dev_priv);
+}
+
+int intel_uc_resume(struct drm_i915_private *dev_priv)
+{
+	DRM_DEBUG_DRIVER("uC resume does nothing as full reinit is done\n");
+
+	return 0;
+}
+
 int intel_guc_send_nop(struct intel_guc *guc, const u32 *action, u32 len)
 {
 	WARN(1, "Unexpected send: action=%#x\n", *action);

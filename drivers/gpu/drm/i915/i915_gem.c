@@ -2034,9 +2034,11 @@ out:
 int i915_gem_runtime_suspend(struct drm_i915_private *dev_priv)
 {
 	struct drm_i915_gem_object *obj, *on;
-	int i;
+	int i, ret;
 
-	intel_guc_suspend(dev_priv);
+	ret = intel_uc_runtime_suspend(dev_priv);
+	if (ret)
+		return ret;
 
 	/*
 	 * Only called during RPM suspend. All users of the userfault_list
@@ -2077,7 +2079,7 @@ int i915_gem_runtime_suspend(struct drm_i915_private *dev_priv)
 		reg->dirty = true;
 	}
 
-	return 0;
+	return ret;
 }
 
 /**
@@ -2097,9 +2099,7 @@ int i915_gem_runtime_resume(struct drm_i915_private *dev_priv)
 	i915_gem_init_swizzling(dev_priv);
 	i915_gem_restore_fences(dev_priv);
 
-	intel_guc_resume(dev_priv);
-
-	return 0;
+	return intel_uc_runtime_resume(dev_priv);
 }
 
 static int i915_gem_object_create_mmap_offset(struct drm_i915_gem_object *obj)
@@ -4600,7 +4600,9 @@ int i915_gem_suspend(struct drm_i915_private *dev_priv)
 	if (WARN_ON(!intel_engines_are_idle(dev_priv)))
 		i915_gem_set_wedged(dev_priv); /* no hope, discard everything */
 
-	intel_guc_suspend(dev_priv);
+	ret = intel_uc_suspend(dev_priv);
+	if (ret)
+		i915_gem_set_wedged(dev_priv); /* no hope, discard everything */
 
 	/*
 	 * Neither the BIOS, ourselves or any other kernel
@@ -4644,6 +4646,7 @@ err_unlock:
 int i915_gem_resume(struct drm_i915_private *dev_priv)
 {
 	struct drm_device *dev = &dev_priv->drm;
+	int ret;
 
 	WARN_ON(dev_priv->gt.awake);
 
@@ -4656,10 +4659,21 @@ int i915_gem_resume(struct drm_i915_private *dev_priv)
 	 * it and start again.
 	 */
 	dev_priv->gt.resume(dev_priv);
-	intel_guc_resume(dev_priv);
+
+	/*
+	 * NB: Full gem reinitialization is being done in i915_drm_resume
+	 * after gem_resume, so currently intel_uc_resume will be of no use.
+	 * Hence, intel_uc_resume is nop currently. If full reinitialization is
+	 * removed, will need to put functionality to resume from sleep in
+	 * intel_uc_resume.
+	 */
+	ret = intel_uc_resume(dev_priv);
+	if (ret)
+		i915_gem_set_wedged(dev_priv);
+
 	mutex_unlock(&dev->struct_mutex);
 
-	return 0;
+	return ret;
 }
 
 void i915_gem_init_swizzling(struct drm_i915_private *dev_priv)

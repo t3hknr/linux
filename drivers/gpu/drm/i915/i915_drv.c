@@ -2518,7 +2518,6 @@ static int intel_runtime_suspend(struct device *kdev)
 		DRM_ERROR("Runtime suspend failed, disabling it (%d)\n", ret);
 		intel_runtime_pm_enable_interrupts(dev_priv);
 
-		intel_guc_resume(dev_priv);
 		i915_gem_runtime_resume(dev_priv);
 		enable_rpm_wakeref_asserts(dev_priv);
 
