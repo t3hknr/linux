@@ -1062,7 +1062,7 @@ err_vma:
 	return ret;
 }
 
-void i915_guc_submission_fini(struct drm_i915_private *dev_priv)
+void i915_guc_submission_cleanup(struct drm_i915_private *dev_priv)
 {
 	struct intel_guc *guc = &dev_priv->guc;
 

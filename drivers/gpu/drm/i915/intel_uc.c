@@ -418,7 +418,7 @@ err_log_capture:
 	guc_capture_load_err_log(guc);
 err_submission:
 	if (i915_modparams.enable_guc_submission)
-		i915_guc_submission_fini(dev_priv);
+		i915_guc_submission_cleanup(dev_priv);
 err_guc:
 	i915_ggtt_disable_guc(dev_priv);
 
@@ -440,21 +440,15 @@ err_guc:
 	return ret;
 }
 
-void intel_uc_fini_hw(struct drm_i915_private *dev_priv)
+void intel_uc_cleanup(struct drm_i915_private *dev_priv)
 {
 	guc_free_load_err_log(&dev_priv->guc);
 
 	if (!i915_modparams.enable_guc_loading)
 		return;
 
-	guc_disable_communication(&dev_priv->guc);
-
-	if (i915_modparams.enable_guc_submission) {
-		gen9_disable_guc_interrupts(dev_priv);
-		i915_guc_submission_fini(dev_priv);
-	}
-
-	i915_ggtt_disable_guc(dev_priv);
+	if (i915_modparams.enable_guc_submission)
+		i915_guc_submission_cleanup(dev_priv);
 }
 
 /**

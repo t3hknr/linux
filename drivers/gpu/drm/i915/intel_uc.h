@@ -207,7 +207,7 @@ void intel_uc_init_early(struct drm_i915_private *dev_priv);
 void intel_uc_init_fw(struct drm_i915_private *dev_priv);
 void intel_uc_fini_fw(struct drm_i915_private *dev_priv);
 int intel_uc_init_hw(struct drm_i915_private *dev_priv);
-void intel_uc_fini_hw(struct drm_i915_private *dev_priv);
+void intel_uc_cleanup(struct drm_i915_private *dev_priv);
 int intel_uc_runtime_suspend(struct drm_i915_private *dev_priv);
 int intel_uc_runtime_resume(struct drm_i915_private *dev_priv);
 int intel_uc_suspend(struct drm_i915_private *dev_priv);
@@ -239,7 +239,7 @@ u32 intel_guc_wopcm_size(struct drm_i915_private *dev_priv);
 int i915_guc_submission_init(struct drm_i915_private *dev_priv);
 int i915_guc_submission_enable(struct drm_i915_private *dev_priv);
 void i915_guc_submission_disable(struct drm_i915_private *dev_priv);
-void i915_guc_submission_fini(struct drm_i915_private *dev_priv);
+void i915_guc_submission_cleanup(struct drm_i915_private *dev_priv);
 struct i915_vma *intel_guc_allocate_vma(struct intel_guc *guc, u32 size);
 
 /* intel_guc_log.c */
