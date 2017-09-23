@@ -4528,6 +4528,8 @@ void i915_gem_sanitize(struct drm_i915_private *i915)
 		mutex_unlock(&i915->drm.struct_mutex);
 	}
 
+	intel_guc_sanitize(&i915->guc);
+
 	/*
 	 * If we inherit context state from the BIOS or earlier occupants
 	 * of the GPU, the GPU may be in an inconsistent state when we

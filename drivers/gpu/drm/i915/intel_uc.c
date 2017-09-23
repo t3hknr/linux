@@ -560,3 +560,11 @@ int intel_guc_sample_forcewake(struct intel_guc *guc)
 
 	return intel_guc_send(guc, action, ARRAY_SIZE(action));
 }
+
+void intel_guc_sanitize(struct intel_guc *guc)
+{
+	if (guc->fw.fetch_status == INTEL_UC_FIRMWARE_SUCCESS)
+		guc->fw.load_status = INTEL_UC_FIRMWARE_PENDING;
+	else
+		guc->fw.load_status = INTEL_UC_FIRMWARE_NONE;
+}
