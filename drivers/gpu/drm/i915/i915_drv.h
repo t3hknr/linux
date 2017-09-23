@@ -3469,7 +3469,8 @@ i915_gem_object_ggtt_pin(struct drm_i915_gem_object *obj,
 int i915_gem_object_unbind(struct drm_i915_gem_object *obj);
 void i915_gem_release_mmap(struct drm_i915_gem_object *obj);
 
-void i915_gem_runtime_suspend(struct drm_i915_private *dev_priv);
+int i915_gem_runtime_suspend(struct drm_i915_private *dev_priv);
+int i915_gem_runtime_resume(struct drm_i915_private *dev_priv);
 
 static inline int __sg_page_count(const struct scatterlist *sg)
 {
@@ -3672,7 +3673,7 @@ void i915_gem_cleanup_engines(struct drm_i915_private *dev_priv);
 int i915_gem_wait_for_idle(struct drm_i915_private *dev_priv,
 			   unsigned int flags);
 int __must_check i915_gem_suspend(struct drm_i915_private *dev_priv);
-void i915_gem_resume(struct drm_i915_private *dev_priv);
+int i915_gem_resume(struct drm_i915_private *dev_priv);
 int i915_gem_fault(struct vm_fault *vmf);
 int i915_gem_object_wait(struct drm_i915_gem_object *obj,
 			 unsigned int flags,

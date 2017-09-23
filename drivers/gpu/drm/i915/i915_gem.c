@@ -2022,7 +2022,7 @@ out:
 	intel_runtime_pm_put(i915);
 }
 
-void i915_gem_runtime_suspend(struct drm_i915_private *dev_priv)
+int i915_gem_runtime_suspend(struct drm_i915_private *dev_priv)
 {
 	struct drm_i915_gem_object *obj, *on;
 	int i;
@@ -2065,6 +2065,20 @@ void i915_gem_runtime_suspend(struct drm_i915_private *dev_priv)
 		GEM_BUG_ON(!list_empty(&reg->vma->obj->userfault_link));
 		reg->dirty = true;
 	}
+
+	return 0;
+}
+
+int i915_gem_runtime_resume(struct drm_i915_private *dev_priv)
+{
+	/*
+	 * No point of rolling back things in case of an error, as the best
+	 * we can do is to hope that things will still work (and disable RPM).
+	 */
+	i915_gem_init_swizzling(dev_priv);
+	i915_gem_restore_fences(dev_priv);
+
+	return 0;
 }
 
 static int i915_gem_object_create_mmap_offset(struct drm_i915_gem_object *obj)
@@ -4587,7 +4601,7 @@ err_unlock:
 	return ret;
 }
 
-void i915_gem_resume(struct drm_i915_private *dev_priv)
+int i915_gem_resume(struct drm_i915_private *dev_priv)
 {
 	struct drm_device *dev = &dev_priv->drm;
 
@@ -4603,6 +4617,8 @@ void i915_gem_resume(struct drm_i915_private *dev_priv)
 	dev_priv->gt.resume(dev_priv);
 
 	mutex_unlock(&dev->struct_mutex);
+
+	return 0;
 }
 
 void i915_gem_init_swizzling(struct drm_i915_private *dev_priv)

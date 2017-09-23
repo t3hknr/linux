@@ -1655,6 +1655,7 @@ static int i915_suspend_switcheroo(struct drm_device *dev, pm_message_t state)
 static int i915_drm_resume(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = to_i915(dev);
+	struct pci_dev *pdev = dev_priv->drm.pdev;
 	int ret;
 
 	disable_rpm_wakeref_asserts(dev_priv);
@@ -1666,7 +1667,9 @@ static int i915_drm_resume(struct drm_device *dev)
 
 	intel_csr_ucode_resume(dev_priv);
 
-	i915_gem_resume(dev_priv);
+	ret = i915_gem_resume(dev_priv);
+	if (ret)
+		dev_err(&pdev->dev, "GEM resume failed\n");
 
 	i915_restore_state(dev_priv);
 	intel_pps_unlock_regs_wa(dev_priv);
@@ -2495,7 +2498,11 @@ static int intel_runtime_suspend(struct device *kdev)
 	 * We are safe here against re-faults, since the fault handler takes
 	 * an RPM reference.
 	 */
-	i915_gem_runtime_suspend(dev_priv);
+	ret = i915_gem_runtime_suspend(dev_priv);
+	if (ret) {
+		enable_rpm_wakeref_asserts(dev_priv);
+		return ret;
+	}
 
 	intel_guc_suspend(dev_priv);
 
@@ -2515,6 +2522,8 @@ static int intel_runtime_suspend(struct device *kdev)
 		DRM_ERROR("Runtime suspend failed, disabling it (%d)\n", ret);
 		intel_runtime_pm_enable_interrupts(dev_priv);
 
+		intel_guc_resume(dev_priv);
+		i915_gem_runtime_resume(dev_priv);
 		enable_rpm_wakeref_asserts(dev_priv);
 
 		return ret;
@@ -2567,7 +2576,7 @@ static int intel_runtime_resume(struct device *kdev)
 	struct pci_dev *pdev = to_pci_dev(kdev);
 	struct drm_device *dev = pci_get_drvdata(pdev);
 	struct drm_i915_private *dev_priv = to_i915(dev);
-	int ret = 0;
+	int ret1 = 0, ret2;
 
 	if (WARN_ON_ONCE(!HAS_RUNTIME_PM(dev_priv)))
 		return -ENODEV;
@@ -2593,15 +2602,8 @@ static int intel_runtime_resume(struct device *kdev)
 	} else if (IS_HASWELL(dev_priv) || IS_BROADWELL(dev_priv)) {
 		hsw_disable_pc8(dev_priv);
 	} else if (IS_VALLEYVIEW(dev_priv) || IS_CHERRYVIEW(dev_priv)) {
-		ret = vlv_resume_prepare(dev_priv, true);
+		ret1 = vlv_resume_prepare(dev_priv, true);
 	}
-
-	/*
-	 * No point of rolling back things in case of an error, as the best
-	 * we can do is to hope that things will still work (and disable RPM).
-	 */
-	i915_gem_init_swizzling(dev_priv);
-	i915_gem_restore_fences(dev_priv);
 
 	intel_runtime_pm_enable_interrupts(dev_priv);
 
@@ -2615,14 +2617,17 @@ static int intel_runtime_resume(struct device *kdev)
 
 	intel_enable_ipc(dev_priv);
 
+	ret2 = i915_gem_runtime_resume(dev_priv);
+
 	enable_rpm_wakeref_asserts(dev_priv);
 
-	if (ret)
-		DRM_ERROR("Runtime resume failed, disabling it (%d)\n", ret);
+	if (ret1 || ret2)
+		DRM_ERROR("Runtime resume failed, disabling it (%d)\n",
+			  ret1 ?: ret2);
 	else
 		DRM_DEBUG_KMS("Device resumed\n");
 
-	return ret;
+	return ret1 ?: ret2;
 }
 
 const struct dev_pm_ops i915_pm_ops = {
