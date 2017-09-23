@@ -447,9 +447,6 @@ void intel_uc_fini_hw(struct drm_i915_private *dev_priv)
 	if (!i915_modparams.enable_guc_loading)
 		return;
 
-	if (i915_modparams.enable_guc_submission)
-		i915_guc_submission_disable(dev_priv);
-
 	guc_disable_communication(&dev_priv->guc);
 
 	if (i915_modparams.enable_guc_submission) {
@@ -528,7 +525,13 @@ out:
 
 int intel_uc_suspend(struct drm_i915_private *dev_priv)
 {
-	return intel_guc_suspend(dev_priv);
+	if (i915_modparams.enable_guc_submission) {
+		mutex_lock(&dev_priv->drm.struct_mutex);
+		i915_guc_submission_disable(dev_priv);
+		mutex_unlock(&dev_priv->drm.struct_mutex);
+	}
+
+	return intel_uc_runtime_suspend(dev_priv);
 }
 
 int intel_uc_resume(struct drm_i915_private *dev_priv)

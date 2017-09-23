@@ -894,9 +894,6 @@ static void guc_client_free(struct i915_guc_client *client)
 	 * Be sure to drop any locks
 	 */
 
-	/* FIXME: in many cases, by the time we get here the GuC has been
-	 * reset, so we cannot destroy the doorbell properly. Ignore the
-	 * error message for now */
 	destroy_doorbell(client);
 	guc_stage_desc_fini(client->guc, client);
 	i915_gem_object_unpin_map(client->vma->obj);
@@ -1163,6 +1160,12 @@ int i915_guc_submission_enable(struct drm_i915_private *dev_priv)
 		     sizeof(struct guc_wq_item) *
 		     I915_NUM_ENGINES > GUC_WQ_SIZE);
 
+	/*
+	 * Assert that drm.struct_mutex is held.
+	 * Needed for GuC client vma binding.
+	 */
+	lockdep_assert_held(&dev_priv->drm.struct_mutex);
+
 	if (!client) {
 		client = guc_client_alloc(dev_priv,
 					  INTEL_INFO(dev_priv)->ring_mask,
@@ -1212,6 +1215,12 @@ err_execbuf_client:
 void i915_guc_submission_disable(struct drm_i915_private *dev_priv)
 {
 	struct intel_guc *guc = &dev_priv->guc;
+
+	/*
+	 * Assert that drm.struct_mutex is held.
+	 * Needed for GuC client vma unbinding.
+	 */
+	lockdep_assert_held(&dev_priv->drm.struct_mutex);
 
 	guc_interrupts_release(dev_priv);
 
