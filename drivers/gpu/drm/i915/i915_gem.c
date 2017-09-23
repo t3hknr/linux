@@ -2882,6 +2882,8 @@ int i915_gem_reset_prepare(struct drm_i915_private *dev_priv)
 
 	i915_gem_revoke_fences(dev_priv);
 
+	intel_uc_reset_prepare(dev_priv);
+
 	return err;
 }
 

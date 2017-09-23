@@ -541,6 +541,14 @@ int intel_uc_resume(struct drm_i915_private *dev_priv)
 	return 0;
 }
 
+int intel_uc_reset_prepare(struct drm_i915_private *dev_priv)
+{
+	if (i915_modparams.enable_guc_submission)
+		i915_guc_submission_disable(dev_priv);
+
+	return intel_uc_runtime_suspend(dev_priv);
+}
+
 int intel_guc_send_nop(struct intel_guc *guc, const u32 *action, u32 len)
 {
 	WARN(1, "Unexpected send: action=%#x\n", *action);

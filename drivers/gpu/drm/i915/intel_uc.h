@@ -212,6 +212,7 @@ int intel_uc_runtime_suspend(struct drm_i915_private *dev_priv);
 int intel_uc_runtime_resume(struct drm_i915_private *dev_priv);
 int intel_uc_suspend(struct drm_i915_private *dev_priv);
 int intel_uc_resume(struct drm_i915_private *dev_priv);
+int intel_uc_reset_prepare(struct drm_i915_private *dev_priv);
 int intel_guc_sample_forcewake(struct intel_guc *guc);
 void intel_guc_sanitize(struct intel_guc *guc);
 int intel_guc_send_nop(struct intel_guc *guc, const u32 *action, u32 len);
