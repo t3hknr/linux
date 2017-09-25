@@ -1401,11 +1401,39 @@ static int gen9_init_render_ring(struct intel_engine_cs *engine)
 	return init_workarounds_ring(engine);
 }
 
+static void execlists_resubmit_requests(struct intel_engine_cs *engine)
+{
+	struct intel_engine_execlist * const el = &engine->execlist;
+	struct i915_priolist *p = &el->default_priolist;
+	int last_prio = INT_MIN;
+	struct drm_i915_gem_request *rq, *rn;
+
+	lockdep_assert_held(&engine->timeline->lock);
+
+	/* Push back any incomplete requests for replay. */
+	list_for_each_entry_safe_reverse(rq, rn,
+					 &engine->timeline->requests, link) {
+		struct i915_priotree *pt;
+
+		if (i915_gem_request_completed(rq))
+			break;
+
+		__i915_gem_request_unsubmit(rq);
+
+		pt = &rq->priotree;
+		if (pt->priority != last_prio)
+			p = lookup_priolist(engine, pt, pt->priority);
+		trace_i915_gem_request_out(rq);
+
+		list_add(&rq->priotree.link,
+			 &ptr_mask_bits(p, 1)->requests);
+	}
+}
+
 static void reset_common_ring(struct intel_engine_cs *engine,
 			      struct drm_i915_gem_request *request)
 {
 	struct intel_engine_execlist * const el = &engine->execlist;
-	struct drm_i915_gem_request *rq, *rn;
 	struct intel_context *ce;
 	unsigned long flags;
 
@@ -1421,23 +1449,7 @@ static void reset_common_ring(struct intel_engine_cs *engine,
 	 * requests were completed.
 	 */
 	execlist_cancel_port_requests(el);
-
-	/* Push back any incomplete requests for replay after the reset. */
-	list_for_each_entry_safe_reverse(rq, rn,
-					 &engine->timeline->requests, link) {
-		struct i915_priolist *p;
-
-		if (i915_gem_request_completed(rq))
-			break;
-
-		__i915_gem_request_unsubmit(rq);
-
-		p = lookup_priolist(engine,
-				    &rq->priotree,
-				    rq->priotree.priority);
-		list_add(&rq->priotree.link,
-			 &ptr_mask_bits(p, 1)->requests);
-	}
+	execlists_resubmit_requests(engine);
 
 	spin_unlock_irqrestore(&engine->timeline->lock, flags);
 
