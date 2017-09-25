@@ -2571,7 +2571,7 @@ static int intel_runtime_resume(struct device *kdev)
 	struct pci_dev *pdev = to_pci_dev(kdev);
 	struct drm_device *dev = pci_get_drvdata(pdev);
 	struct drm_i915_private *dev_priv = to_i915(dev);
-	int ret1 = 0, ret2;
+	int err = 0, ret;
 
 	if (WARN_ON_ONCE(!HAS_RUNTIME_PM(dev_priv)))
 		return -ENODEV;
@@ -2595,7 +2595,7 @@ static int intel_runtime_resume(struct device *kdev)
 	} else if (IS_HASWELL(dev_priv) || IS_BROADWELL(dev_priv)) {
 		hsw_disable_pc8(dev_priv);
 	} else if (IS_VALLEYVIEW(dev_priv) || IS_CHERRYVIEW(dev_priv)) {
-		ret1 = vlv_resume_prepare(dev_priv, true);
+		err = vlv_resume_prepare(dev_priv, true);
 	}
 
 	intel_runtime_pm_enable_interrupts(dev_priv);
@@ -2610,17 +2610,18 @@ static int intel_runtime_resume(struct device *kdev)
 
 	intel_enable_ipc(dev_priv);
 
-	ret2 = i915_gem_runtime_resume(dev_priv);
+	ret = i915_gem_runtime_resume(dev_priv);
+	if (!err)
+		err = ret;
 
 	enable_rpm_wakeref_asserts(dev_priv);
 
-	if (ret1 || ret2)
-		DRM_ERROR("Runtime resume failed, disabling it (%d)\n",
-			  ret1 ?: ret2);
+	if (err)
+		DRM_ERROR("Runtime resume failed, disabling it (%d)\n", err);
 	else
 		DRM_DEBUG_KMS("Device resumed\n");
 
-	return ret1 ?: ret2;
+	return err;
 }
 
 const struct dev_pm_ops i915_pm_ops = {
