@@ -495,13 +495,9 @@ static const struct intel_device_info intel_geminilake_info __initconst = {
 };
 
 #define KBL_PLATFORM \
-	BDW_FEATURES, \
-	.gen = 9, \
+	SKL_PLATFORM, \
 	.platform = INTEL_KABYLAKE, \
-	.has_csr = 1, \
-	.has_guc = 1, \
-	.has_ipc = 1, \
-	.ddb_size = 896
+	.has_ipc = 1
 
 static const struct intel_device_info intel_kabylake_gt1_info __initconst = {
 	KBL_PLATFORM,
@@ -520,13 +516,8 @@ static const struct intel_device_info intel_kabylake_gt3_info __initconst = {
 };
 
 #define CFL_PLATFORM \
-	BDW_FEATURES, \
-	.gen = 9, \
-	.platform = INTEL_COFFEELAKE, \
-	.has_csr = 1, \
-	.has_guc = 1, \
-	.has_ipc = 1, \
-	.ddb_size = 896
+	KBL_PLATFORM, \
+	.platform = INTEL_COFFEELAKE
 
 static const struct intel_device_info intel_coffeelake_gt1_info __initconst = {
 	CFL_PLATFORM,
@@ -545,14 +536,12 @@ static const struct intel_device_info intel_coffeelake_gt3_info __initconst = {
 };
 
 static const struct intel_device_info intel_cannonlake_gt2_info __initconst = {
-	BDW_FEATURES,
+	SKL_PLATFORM,
 	.is_alpha_support = 1,
 	.platform = INTEL_CANNONLAKE,
 	.gen = 10,
 	.gt = 2,
 	.ddb_size = 1024,
-	.has_csr = 1,
-	.has_ipc = 1,
 	.color = { .degamma_lut_size = 0, .gamma_lut_size = 1024 }
 };
 
