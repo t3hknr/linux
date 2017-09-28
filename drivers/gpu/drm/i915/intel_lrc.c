@@ -355,7 +355,7 @@ static void unwind_wa_tail(struct drm_i915_gem_request *rq)
 	assert_ring_tail_valid(rq->ring, rq->tail);
 }
 
-static void unwind_incomplete_requests(struct intel_engine_cs *engine)
+void unwind_incomplete_requests(struct intel_engine_cs *engine)
 {
 	struct drm_i915_gem_request *rq, *rn;
 	struct i915_priolist *uninitialized_var(p);
@@ -369,8 +369,10 @@ static void unwind_incomplete_requests(struct intel_engine_cs *engine)
 		if (i915_gem_request_completed(rq))
 			return;
 
+		trace_i915_gem_request_out(rq);
 		__i915_gem_request_unsubmit(rq);
 		unwind_wa_tail(rq);
+		trace_i915_gem_request_out(rq);
 
 		GEM_BUG_ON(rq->priotree.priority == I915_PRIORITY_INVALID);
 		if (rq->priotree.priority != last_prio) {
@@ -668,7 +670,7 @@ unlock:
 		execlists_submit_ports(engine);
 }
 
-static void
+void
 execlist_cancel_port_requests(struct intel_engine_execlists *execlists)
 {
 	struct execlist_port *port = execlists->port;

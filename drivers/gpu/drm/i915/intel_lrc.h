@@ -107,6 +107,10 @@ intel_lr_context_descriptor(struct i915_gem_context *ctx,
 	return ctx->engine[engine->id].lrc_desc;
 }
 
+void unwind_incomplete_requests(struct intel_engine_cs *engine);
+void
+execlist_cancel_port_requests(struct intel_engine_execlists *execlists);
+
 
 /* Execlists */
 int intel_sanitize_enable_execlists(struct drm_i915_private *dev_priv,

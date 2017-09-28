@@ -373,8 +373,7 @@ static int i915_getparam(struct drm_device *dev, void *data,
 			value |= I915_SCHEDULER_CAP_PRIORITY;
 
 			if (INTEL_INFO(dev_priv)->has_logical_ring_preemption &&
-			    i915_modparams.enable_execlists &&
-			    !i915_modparams.enable_guc_submission)
+			    i915_modparams.enable_execlists)
 				value |= I915_SCHEDULER_CAP_PREEMPTION;
 		}
 		break;

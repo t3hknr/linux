@@ -495,6 +495,8 @@ struct intel_engine_cs {
 
 	bool needs_cmd_parser;
 
+	struct work_struct guc_preempt_work;
+
 	/*
 	 * Table of commands the command parser needs to know about
 	 * for this engine.

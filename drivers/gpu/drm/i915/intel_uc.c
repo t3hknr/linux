@@ -314,6 +314,8 @@ static int guc_enable_communication(struct intel_guc *guc)
 
 	guc->shared_data_offset = guc_ggtt_offset(ctx->engine[RCS].state) +
 		LRC_GUCSHR_PN * PAGE_SIZE;
+	guc->shared_data_addr = (void*)ctx->engine[RCS].lrc_reg_state -
+		LRC_STATE_PN * PAGE_SIZE;
 
 	if (HAS_GUC_CT(dev_priv))
 		return intel_guc_enable_ct(guc);

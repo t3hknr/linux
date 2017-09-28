@@ -190,6 +190,9 @@ struct intel_guc {
 
 	/* Kernel context state ggtt offset, first page is shared with GuC */
 	u32 shared_data_offset;
+	void *shared_data_addr;
+
+	struct workqueue_struct *preempt_wq;
 
 	/* GuC's FW specific send function */
 	int (*send)(struct intel_guc *guc, const u32 *data, u32 len);
