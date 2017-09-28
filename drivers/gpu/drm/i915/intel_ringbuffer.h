@@ -238,6 +238,8 @@ struct intel_engine_execlists {
 #define EXECLIST_MAX_PORTS 2
 	} port[EXECLIST_MAX_PORTS];
 
+	bool preempt;
+
 	/**
 	 * @port_mask: number of execlist ports - 1
 	 */

@@ -470,6 +470,7 @@ static const struct intel_device_info intel_skylake_gt4_info __initconst = {
 	.has_rc6 = 1, \
 	.has_dp_mst = 1, \
 	.has_logical_ring_contexts = 1, \
+	.has_logical_ring_preemption = 1, \
 	.has_guc = 1, \
 	.has_aliasing_ppgtt = 1, \
 	.has_full_ppgtt = 1, \
