@@ -354,7 +354,7 @@ static void unwind_wa_tail(struct drm_i915_gem_request *rq)
 	assert_ring_tail_valid(rq->ring, rq->tail);
 }
 
-static void execlists_unwind_incomplete_requests(
+void execlists_unwind_incomplete_requests(
 		const struct intel_engine_execlists * const execlists)
 {
 	struct intel_engine_cs *engine =
@@ -685,7 +685,7 @@ unlock:
 		execlists_submit_ports(engine);
 }
 
-static void
+void
 execlists_cancel_port_requests(struct intel_engine_execlists * const execlists)
 {
 	struct execlist_port *port = execlists->port;
