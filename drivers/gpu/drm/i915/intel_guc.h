@@ -46,6 +46,11 @@ enum i915_guc_client_id {
 	PREEMPT
 };
 
+struct guc_preempt_work {
+	struct intel_engine_cs *engine;
+	struct work_struct work;
+};
+
 struct intel_guc {
 	struct intel_uc_fw fw;
 	struct intel_guc_log log;
@@ -65,6 +70,9 @@ struct intel_guc {
 	void *shared_data_vaddr;
 
 	struct i915_guc_client *client[I915_GUC_NUM_CLIENTS];
+
+	struct guc_preempt_work preempt_work[I915_NUM_ENGINES];
+	struct workqueue_struct *preempt_wq;
 
 	DECLARE_BITMAP(doorbell_bitmap, GUC_NUM_DOORBELLS);
 	/* Cyclic counter mod pagesize	*/
