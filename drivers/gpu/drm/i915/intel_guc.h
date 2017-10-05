@@ -59,6 +59,8 @@ struct intel_guc {
 
 	struct i915_guc_client *client[I915_GUC_NUM_CLIENTS];
 
+	struct workqueue_struct *preempt_wq;
+
 	DECLARE_BITMAP(doorbell_bitmap, GUC_NUM_DOORBELLS);
 	/* Cyclic counter mod pagesize	*/
 	u32 db_cacheline;

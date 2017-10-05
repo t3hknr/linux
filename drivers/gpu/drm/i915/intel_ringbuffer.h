@@ -500,6 +500,8 @@ struct intel_engine_cs {
 
 	bool needs_cmd_parser;
 
+	struct work_struct guc_preempt_work;
+
 	/*
 	 * Table of commands the command parser needs to know about
 	 * for this engine.
@@ -525,6 +527,9 @@ struct intel_engine_cs {
 	u32 (*get_cmd_length_mask)(u32 cmd_header);
 };
 
+void
+execlists_cancel_port_requests(struct intel_engine_execlists * const execlists);
+
 static inline unsigned int
 execlists_num_ports(const struct intel_engine_execlists * const execlists)
 {
@@ -542,6 +547,8 @@ execlists_port_complete(struct intel_engine_execlists * const execlists,
 	memmove(port, port + 1, m * sizeof(struct execlist_port));
 	memset(port + m, 0, sizeof(struct execlist_port));
 }
+
+
 
 static inline unsigned int
 intel_engine_flag(const struct intel_engine_cs *engine)
@@ -709,6 +716,8 @@ int intel_init_vebox_ring_buffer(struct intel_engine_cs *engine);
 
 u64 intel_engine_get_active_head(struct intel_engine_cs *engine);
 u64 intel_engine_get_last_batch_head(struct intel_engine_cs *engine);
+
+void intel_engine_unwind_incomplete_requests(struct intel_engine_cs *engine);
 
 static inline u32 intel_engine_get_seqno(struct intel_engine_cs *engine)
 {
