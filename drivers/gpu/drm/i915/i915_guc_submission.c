@@ -631,14 +631,18 @@ static void inject_preempt_context(struct work_struct *work)
 	 * new preemption requests. Let's work around that, by asking again.
 	 * And again, and again! Just to be sure. */
 	do {
+		trace_printk("PREEMPT: GUC ACTION SENDING engine: %d\n", engine->id);
 		ret = intel_guc_send(guc, data, ARRAY_SIZE(data));
 		if (!ret)
 			return;
+		trace_printk("PREEMPT: GUC ACTION FAILED engine: %d\n", engine->id);
 	} while (--guc_preempt_retry);
 
 	if (ret) {
 		WRITE_ONCE(engine->execlists.preempt, false);
 		tasklet_schedule(&engine->execlists.irq_tasklet);
+		mdelay(100);
+		BUG();
 	}
 }
 
@@ -657,7 +661,8 @@ static void wait_for_guc_preempt_report(struct intel_engine_cs *engine)
 	struct guc_shared_ctx_data *data = guc->shared_data_vaddr;
 	struct guc_ctx_report *report = &data->preempt_ctx_report[engine->guc_id];
 
-	WARN_ON(wait_for_atomic(report->report_return_status ==
+	trace_printk("PREEMPT: WAITING FOR GUC COMPLETE engine: %d\n", engine->id);
+	WARN_ON_ONCE(wait_for_atomic(report->report_return_status ==
 				INTEL_GUC_REPORT_STATUS_COMPLETE,
 				GUC_PREEMPT_POSTPROCESS_DELAY_MS));
 	/* GuC is expecting that we're also going to clear the affected context
@@ -751,6 +756,7 @@ static void i915_guc_dequeue(struct intel_engine_cs *engine)
 		if (rb_entry(rb, struct i915_priolist, node)->priority >
 		    max(port_request(port)->priotree.priority, 0)) {
 			WRITE_ONCE(execlists->preempt, true);
+			trace_printk("PREEMPT: WORKER QUEUED engine: %d\n", engine->id);
 			queue_work(engine->i915->guc.preempt_wq,
 				   &engine->guc_preempt_work);
 			goto unlock;
@@ -822,6 +828,7 @@ static void i915_guc_irq_handler(unsigned long data)
 
 		WRITE_ONCE(execlists->preempt, false);
 		intel_write_status_page(engine, I915_GEM_HWS_PREEMPT_INDEX, 0);
+		trace_printk("PREEMPT: FINISHED engine: %d\n", engine->id);
 	}
 
 	rq = port_request(&port[0]);
