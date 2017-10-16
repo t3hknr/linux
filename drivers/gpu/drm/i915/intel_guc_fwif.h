@@ -539,7 +539,8 @@ union guc_log_control {
 		u32 logging_enabled:1;
 		u32 reserved1:3;
 		u32 verbosity:4;
-		u32 reserved2:24;
+		u32 critical_logging_enabled:1;
+		u32 reserved2:23;
 	};
 	u32 value;
 } __packed;
