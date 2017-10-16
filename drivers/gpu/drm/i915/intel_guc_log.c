@@ -608,6 +608,8 @@ int i915_guc_log_control(struct drm_i915_private *dev_priv, u64 control_val)
 	if (!log_param.logging_enabled && (i915_modparams.guc_log_level < 0))
 		return 0;
 
+	log_param.critical_logging_enabled = 1;
+
 	ret = guc_log_control(guc, log_param.value);
 	if (ret < 0) {
 		DRM_DEBUG_DRIVER("guc_logging_control action failed %d\n", ret);
