@@ -957,6 +957,8 @@ struct i915_gpu_state {
 		u32 cpu_ring_tail;
 
 		u32 last_seqno;
+		u32 preempt;
+		u32 preempt_done;
 
 		/* Register state */
 		u32 start;

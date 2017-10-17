@@ -456,6 +456,8 @@ static void error_print_engine(struct drm_i915_error_state_buf *m,
 	}
 	err_printf(m, "  seqno: 0x%08x\n", ee->seqno);
 	err_printf(m, "  last_seqno: 0x%08x\n", ee->last_seqno);
+	err_printf(m, "  preempt: 0x%08x\n", ee->preempt);
+	err_printf(m, "  preempt_done: 0x%08x\n", ee->preempt_done);
 	err_printf(m, "  waiting: %s\n", yesno(ee->waiting));
 	err_printf(m, "  ring->head: 0x%08x\n", ee->cpu_ring_head);
 	err_printf(m, "  ring->tail: 0x%08x\n", ee->cpu_ring_tail);
@@ -1203,6 +1205,8 @@ static void error_record_engine_registers(struct i915_gpu_state *error,
 	ee->acthd = intel_engine_get_active_head(engine);
 	ee->seqno = intel_engine_get_seqno(engine);
 	ee->last_seqno = intel_engine_last_submit(engine);
+	ee->preempt = READ_ONCE(engine->execlists.preempt);
+	ee->preempt_done = intel_read_status_page(engine, I915_GEM_HWS_PREEMPT_INDEX);
 	ee->start = I915_READ_START(engine);
 	ee->head = I915_READ_HEAD(engine);
 	ee->tail = I915_READ_TAIL(engine);
