@@ -574,6 +574,26 @@ static void flush_ggtt_writes(struct i915_vma *vma)
 		POSTING_READ_FW(GUC_STATUS);
 }
 
+#define GUC_LOST_IRQ_WORK_DELAY_MS 100
+static void guc_lost_user_interrupt(struct work_struct *work)
+{
+	struct guc_preempt_work *preempt_work =
+		container_of(to_delayed_work(work), typeof(*preempt_work),
+			     lost_irq_work);
+	struct intel_engine_cs *engine = preempt_work->engine;
+	struct intel_guc *guc = &engine->i915->guc;
+	struct guc_shared_ctx_data *data = guc->shared_data_vaddr;
+	struct guc_ctx_report *report = &data->preempt_ctx_report[engine->guc_id];
+
+	if (report->report_return_status == INTEL_GUC_REPORT_STATUS_COMPLETE)
+		tasklet_schedule(&engine->execlists.irq_tasklet);
+	else
+		queue_delayed_work(guc->preempt_wq,
+				   &preempt_work->lost_irq_work,
+				   msecs_to_jiffies(GUC_LOST_IRQ_WORK_DELAY_MS));
+
+}
+
 #define GUC_PREEMPT_FINISHED 0x1
 #define GUC_PREEMPT_BREADCRUMB_DWORDS 0x8
 static void inject_preempt_context(struct work_struct *work)
@@ -629,7 +649,13 @@ static void inject_preempt_context(struct work_struct *work)
 	if (WARN_ON(intel_guc_send(guc, data, ARRAY_SIZE(data)))) {
 		WRITE_ONCE(engine->execlists.preempt, false);
 		tasklet_schedule(&engine->execlists.irq_tasklet);
+
+		return;
 	}
+
+	queue_delayed_work(engine->i915->guc.preempt_wq,
+			   &preempt_work->lost_irq_work,
+			   msecs_to_jiffies(GUC_LOST_IRQ_WORK_DELAY_MS));
 }
 
 /*
@@ -646,6 +672,10 @@ static void wait_for_guc_preempt_report(struct intel_engine_cs *engine)
 	struct intel_guc *guc = &engine->i915->guc;
 	struct guc_shared_ctx_data *data = guc->shared_data_vaddr;
 	struct guc_ctx_report *report = &data->preempt_ctx_report[engine->guc_id];
+
+	/* If we landed here, it means that we didn't lose an interrupt, and
+	 * we can safely cancel the worker */
+	cancel_delayed_work(&guc->preempt_work[engine->id].lost_irq_work);
 
 	WARN_ON(wait_for_atomic(report->report_return_status ==
 				INTEL_GUC_REPORT_STATUS_COMPLETE,
@@ -1229,6 +1259,8 @@ static int guc_preempt_work_create(struct intel_guc *guc)
 	for_each_engine(engine, dev_priv, id) {
 		guc->preempt_work[id].engine = engine;
 		INIT_WORK(&guc->preempt_work[id].work, inject_preempt_context);
+		INIT_DELAYED_WORK(&guc->preempt_work[id].lost_irq_work,
+				  guc_lost_user_interrupt);
 	}
 
 	return 0;
@@ -1240,8 +1272,10 @@ static void guc_preempt_work_destroy(struct intel_guc *guc)
 	struct intel_engine_cs *engine;
 	enum intel_engine_id id;
 
-	for_each_engine(engine, dev_priv, id)
+	for_each_engine(engine, dev_priv, id) {
+		cancel_delayed_work_sync(&guc->preempt_work[id].lost_irq_work);
 		cancel_work_sync(&guc->preempt_work[id].work);
+	}
 
 	destroy_workqueue(guc->preempt_wq);
 }

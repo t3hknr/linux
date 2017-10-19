@@ -49,6 +49,7 @@ enum i915_guc_client_id {
 struct guc_preempt_work {
 	struct intel_engine_cs *engine;
 	struct work_struct work;
+	struct delayed_work lost_irq_work;
 };
 
 struct intel_guc {
