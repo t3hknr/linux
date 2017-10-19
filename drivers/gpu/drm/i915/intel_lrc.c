@@ -286,6 +286,55 @@ intel_lr_context_descriptor_update(struct i915_gem_context *ctx,
 	ce->lrc_desc = desc;
 }
 
+static int emit_stuff(struct drm_i915_gem_request *req, bool enable)
+{
+	u32 *cs;
+	i915_reg_t reg;
+
+	cs = intel_ring_begin(req, 4);
+	if (IS_ERR(cs))
+		return PTR_ERR(cs);
+
+	if (INTEL_GEN(req->i915) < 9)
+		return -ENODEV;
+	else if (INTEL_GEN(req->i915) >= 10)
+		reg = CNL_HDC_CHICKEN0;
+	else
+		reg = HDC_CHICKEN0;
+
+
+	/* is the bit definition the same for CNL? Should we enodev for CNL? */
+	*cs++ = MI_LOAD_REGISTER_IMM(1);
+	*cs++ = i915_mmio_reg_offset(reg);
+	if (enable)
+		*cs++ = _MASKED_BIT_ENABLE(HDC_FORCE_NON_COHERENT);
+	else
+		*cs++ = _MASKED_BIT_DISABLE(HDC_FORCE_NON_COHERENT);
+	*cs++ = MI_NOOP;
+
+	intel_ring_advance(req, cs);
+
+	return 0;
+}
+
+int
+intel_lr_context_modify_fine_grain_coherency(struct i915_gem_context *ctx,
+					     bool enable)
+{
+	struct drm_i915_gem_request *req;
+	int ret;
+
+	req = i915_gem_request_alloc(ctx->i915->engine[RCS], ctx);
+	if (IS_ERR(req))
+		return PTR_ERR(req);
+
+	ret = emit_stuff(req, enable);
+
+	i915_add_request(req);
+
+	return ret;
+}
+
 static struct i915_priolist *
 lookup_priolist(struct intel_engine_cs *engine,
 		struct i915_priotree *pt,

@@ -1073,6 +1073,8 @@ int i915_gem_context_getparam_ioctl(struct drm_device *dev, void *data,
 	case I915_CONTEXT_PARAM_PRIORITY:
 		args->value = ctx->priority;
 		break;
+	case I915_CONTEXT_PARAM_COHERENCY:
+		break;
 	default:
 		ret = -EINVAL;
 		break;
@@ -1147,6 +1149,9 @@ int i915_gem_context_setparam_ioctl(struct drm_device *dev, void *data,
 				ctx->priority = priority;
 		}
 		break;
+	case I915_CONTEXT_PARAM_COHERENCY:
+		{
+		}
 
 	default:
 		ret = -EINVAL;

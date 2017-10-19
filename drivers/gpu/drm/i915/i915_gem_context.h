@@ -115,6 +115,7 @@ struct i915_gem_context {
 #define CONTEXT_BANNABLE		3
 #define CONTEXT_BANNED			4
 #define CONTEXT_FORCE_SINGLE_SUBMISSION	5
+#define CONTEXT_FINE_GRAIN_COHERENT	6
 
 	/**
 	 * @hw_id: - unique identifier for the context
@@ -253,6 +254,13 @@ static inline bool i915_gem_context_force_single_submission(const struct i915_ge
 static inline void i915_gem_context_set_force_single_submission(struct i915_gem_context *ctx)
 {
 	__set_bit(CONTEXT_FORCE_SINGLE_SUBMISSION, &ctx->flags);
+}
+
+static inline bool i915_gem_context_is_fine_grain_coherent(struct i915_gem_context *ctx)
+{
+}
+static inline void i915_gem_context_set_fine_grain_coherent(struct i915_gem_context *ctx)
+{
 }
 
 static inline bool i915_gem_context_is_default(const struct i915_gem_context *c)
