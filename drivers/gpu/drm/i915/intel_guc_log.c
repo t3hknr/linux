@@ -234,15 +234,18 @@ static bool guc_check_log_buf_overflow(struct intel_guc *guc,
 	return overflow;
 }
 
-static unsigned int guc_get_log_buffer_size(enum guc_log_buffer_type type)
+static unsigned int
+guc_get_log_buffer_size(struct intel_guc *guc, enum guc_log_buffer_type type)
 {
+	int flags = guc->log.flags;
+
 	switch (type) {
 	case GUC_ISR_LOG_BUFFER:
-		return (GUC_LOG_ISR_PAGES + 1) * PAGE_SIZE;
+		return GUC_LOG_ISR_SIZE(flags);
 	case GUC_DPC_LOG_BUFFER:
-		return (GUC_LOG_DPC_PAGES + 1) * PAGE_SIZE;
+		return GUC_LOG_DPC_SIZE(flags);
 	case GUC_CRASH_DUMP_LOG_BUFFER:
-		return (GUC_LOG_CRASH_PAGES + 1) * PAGE_SIZE;
+		return GUC_LOG_CRASH_SIZE(flags);
 	default:
 		MISSING_CASE(type);
 	}
@@ -279,7 +282,7 @@ static void guc_read_update_log_buffer(struct intel_guc *guc)
 		 */
 		memcpy(&log_buf_state_local, log_buf_state,
 		       sizeof(struct guc_log_buffer_state));
-		buffer_size = guc_get_log_buffer_size(type);
+		buffer_size = guc_get_log_buffer_size(guc, type);
 		read_offset = log_buf_state_local.read_ptr;
 		write_offset = log_buf_state_local.sampled_write_ptr;
 		full_cnt = log_buf_state_local.buffer_full_cnt;
@@ -504,6 +507,10 @@ static void guc_flush_logs(struct intel_guc *guc)
 	guc_log_capture_logs(guc);
 }
 
+#define NUM_CRASH_UNITS	GUC_LOG_CRASH_UNITS_MAX
+#define NUM_DPC_UNITS	GUC_LOG_DPC_UNITS_MAX
+#define NUM_ISR_UNITS	GUC_LOG_ISR_UNITS_MAX
+
 int intel_guc_log_create(struct intel_guc *guc)
 {
 	struct i915_vma *vma;
@@ -514,11 +521,13 @@ int intel_guc_log_create(struct intel_guc *guc)
 
 	GEM_BUG_ON(guc->log.vma);
 
-	/* The first page is to save log buffer state. Allocate one
-	 * extra page for others in case for overlap */
-	size = (1 + GUC_LOG_DPC_PAGES + 1 +
-		GUC_LOG_ISR_PAGES + 1 +
-		GUC_LOG_CRASH_PAGES + 1) << PAGE_SHIFT;
+	flags = GUC_LOG_VALID | GUC_LOG_NOTIFY_ON_HALF_FULL |
+		GUC_LOG_CRASH_FLAG(NUM_CRASH_UNITS) |
+		GUC_LOG_DPC_FLAG(NUM_DPC_UNITS) |
+		GUC_LOG_ISR_FLAG(NUM_ISR_UNITS);
+
+	size = GUC_LOG_STATE_SIZE + GUC_LOG_CRASH_SIZE(flags) +
+	       GUC_LOG_DPC_SIZE(flags) + GUC_LOG_ISR_SIZE(flags);
 
 	/* We require SSE 4.1 for fast reads from the GuC log buffer and
 	 * it should be present on the chipsets supporting GuC based
@@ -542,12 +551,6 @@ int intel_guc_log_create(struct intel_guc *guc)
 		if (ret < 0)
 			goto err_vma;
 	}
-
-	/* each allocated unit is a page */
-	flags = GUC_LOG_VALID | GUC_LOG_NOTIFY_ON_HALF_FULL |
-		(GUC_LOG_DPC_PAGES << GUC_LOG_DPC_SHIFT) |
-		(GUC_LOG_ISR_PAGES << GUC_LOG_ISR_SHIFT) |
-		(GUC_LOG_CRASH_PAGES << GUC_LOG_CRASH_SHIFT);
 
 	offset = guc_ggtt_offset(vma) >> PAGE_SHIFT; /* in pages */
 	guc->log.flags = (offset << GUC_LOG_BUF_ADDR_SHIFT) | flags;
