@@ -253,108 +253,86 @@ guc_get_log_buffer_size(struct intel_guc *guc, enum guc_log_buffer_type type)
 	return 0;
 }
 
-static void guc_read_update_log_buffer(struct intel_guc *guc)
+static unsigned int
+guc_get_log_buffer_offset(struct intel_guc *guc, enum guc_log_buffer_type type)
 {
-	unsigned int buffer_size, read_offset, write_offset, bytes_to_copy, full_cnt;
-	struct guc_log_buffer_state *log_buf_state, *log_buf_snapshot_state;
-	struct guc_log_buffer_state log_buf_state_local;
-	enum guc_log_buffer_type type;
+	int flags = guc->log.flags;
+
+	switch (type) {
+	case GUC_ISR_LOG_BUFFER:
+		return GUC_LOG_ISR_OFFSET(flags);
+	case GUC_DPC_LOG_BUFFER:
+		return GUC_LOG_DPC_OFFSET(flags);
+	case GUC_CRASH_DUMP_LOG_BUFFER:
+		return GUC_LOG_CRASH_OFFSET(flags);
+	default:
+		MISSING_CASE(type);
+	}
+
+	return 0;
+}
+
+static unsigned int
+guc_log_copy(struct intel_guc *guc, struct guc_log_buffer_state *state,
+	     enum guc_log_buffer_type type)
+{
+	unsigned int read_offset, write_offset, bytes_total, src_buffer_size;
 	void *src_data, *dst_data;
-	bool new_overflow;
 
-	if (WARN_ON(!guc->log.runtime.buf_addr))
-		return;
+	read_offset = state->read_ptr;
+	write_offset = state->sampled_write_ptr;
+	src_buffer_size = guc_get_log_buffer_size(guc, type);
 
-	/* Get the pointer to shared GuC log buffer */
-	log_buf_state = src_data = guc->log.runtime.buf_addr;
+	if (read_offset > write_offset)
+		bytes_total = write_offset + src_buffer_size - read_offset;
+	else
+		bytes_total = write_offset - read_offset;
 
-	/* Get the pointer to local buffer to store the logs */
-	log_buf_snapshot_state = dst_data = guc_get_write_buffer(guc);
+	if (!bytes_total)
+		goto out;
 
-	/* Actual logs are present from the 2nd page */
-	src_data += PAGE_SIZE;
-	dst_data += PAGE_SIZE;
+	src_data = guc->log.runtime.buf_addr +
+		   guc_get_log_buffer_offset(guc, type);
+	dst_data = relay_reserve(guc->log.runtime.relay_chan, bytes_total);
 
-	for (type = GUC_ISR_LOG_BUFFER; type < GUC_MAX_LOG_BUFFER; type++) {
-		/* Make a copy of the state structure, inside GuC log buffer
-		 * (which is uncached mapped), on the stack to avoid reading
-		 * from it multiple times.
-		 */
-		memcpy(&log_buf_state_local, log_buf_state,
-		       sizeof(struct guc_log_buffer_state));
-		buffer_size = guc_get_log_buffer_size(guc, type);
-		read_offset = log_buf_state_local.read_ptr;
-		write_offset = log_buf_state_local.sampled_write_ptr;
-		full_cnt = log_buf_state_local.buffer_full_cnt;
-
-		/* Bookkeeping stuff */
-		guc->log.flush_count[type] += log_buf_state_local.flush_to_file;
-		new_overflow = guc_check_log_buf_overflow(guc, type, full_cnt);
-
-		/* Update the state of shared log buffer */
-		log_buf_state->read_ptr = write_offset;
-		log_buf_state->flush_to_file = 0;
-		log_buf_state++;
-
-		if (unlikely(!log_buf_snapshot_state))
-			continue;
-
-		/* First copy the state structure in snapshot buffer */
-		memcpy(log_buf_snapshot_state, &log_buf_state_local,
-		       sizeof(struct guc_log_buffer_state));
-
-		/* The write pointer could have been updated by GuC firmware,
-		 * after sending the flush interrupt to Host, for consistency
-		 * set write pointer value to same value of sampled_write_ptr
-		 * in the snapshot buffer.
-		 */
-		log_buf_snapshot_state->write_ptr = write_offset;
-		log_buf_snapshot_state++;
-
-		/* Now copy the actual logs. */
-		if (unlikely(new_overflow)) {
-			/* copy the whole buffer in case of overflow */
-			read_offset = 0;
-			write_offset = buffer_size;
-		} else if (unlikely((read_offset > buffer_size) ||
-				    (write_offset > buffer_size))) {
-			DRM_ERROR("invalid log buffer state\n");
-			/* copy whole buffer as offsets are unreliable */
-			read_offset = 0;
-			write_offset = buffer_size;
-		}
-
-		/* Just copy the newly written data */
-		if (read_offset > write_offset) {
-			i915_memcpy_from_wc(dst_data, src_data, write_offset);
-			bytes_to_copy = buffer_size - read_offset;
-		} else {
-			bytes_to_copy = write_offset - read_offset;
-		}
-		i915_memcpy_from_wc(dst_data + read_offset,
-				    src_data + read_offset, bytes_to_copy);
-
-		src_data += buffer_size;
-		dst_data += buffer_size;
+	if (read_offset > write_offset) {
+		BUG_ON(!i915_memcpy_from_wc(dst_data, src_data + read_offset,
+					    src_buffer_size - read_offset));
+		dst_data += src_buffer_size - read_offset;
+		BUG_ON(!i915_memcpy_from_wc(dst_data, src_data, write_offset));
+	} else {
+		BUG_ON(!i915_memcpy_from_wc(dst_data, src_data + read_offset,
+					    bytes_total));
 	}
 
-	if (log_buf_snapshot_state)
-		guc_move_to_next_buf(guc);
-	else {
-		/* Used rate limited to avoid deluge of messages, logs might be
-		 * getting consumed by User at a slow rate.
-		 */
-		DRM_ERROR_RATELIMITED("no sub-buffer to capture logs\n");
-		guc->log.capture_miss_count++;
-	}
+out:
+	return bytes_total;
 }
 
 static void capture_logs_work(struct work_struct *work)
 {
+	/* We keep our own copy of the state for each log type */
+	struct guc_log_buffer_state __aligned(16) state[GUC_MAX_LOG_BUFFER];
+	struct guc_log_buffer_state *guc_state;
+	enum guc_log_buffer_type type;
+	unsigned int bytes_copied;
 	struct intel_guc *guc =
 		container_of(work, struct intel_guc, log.runtime.flush_work);
 
-	guc_log_capture_logs(guc);
+	if (WARN_ON(!guc->log.runtime.buf_addr))
+		return;
+
+	guc_state = guc->log.runtime.buf_addr;
+
+	BUG_ON(!i915_memcpy_from_wc(state, guc_state, sizeof(state)));
+
+	for (type = GUC_ISR_LOG_BUFFER; type < GUC_MAX_LOG_BUFFER; type++) {
+		bytes_copied = guc_log_copy(guc, &state[type], type);
+		if (bytes_copied)
+			guc_state->read_ptr = state[type].sampled_write_ptr;
+		guc_state->flush_to_file = 0;
+		guc_state++;
+	}
 }
 
 static bool guc_log_has_runtime(struct intel_guc *guc)
@@ -474,8 +452,6 @@ err:
 static void guc_log_capture_logs(struct intel_guc *guc)
 {
 	struct drm_i915_private *dev_priv = guc_to_i915(guc);
-
-	guc_read_update_log_buffer(guc);
 
 	/* Generally device is expected to be active only at this
 	 * time, so get/put should be really quick.
