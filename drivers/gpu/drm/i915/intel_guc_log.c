@@ -590,6 +590,22 @@ err:
 	return ret;
 }
 
+static void guc_log_flush_irq_enable(struct intel_guc *guc)
+{
+	spin_lock_irq(&guc->irq_lock);
+	guc->msg_enabled_mask |= INTEL_GUC_RECV_MSG_FLUSH_LOG_BUFFER |
+				 INTEL_GUC_RECV_MSG_CRASH_DUMP_POSTED;
+	spin_unlock_irq(&guc->irq_lock);
+}
+
+static void guc_log_flush_irq_disable(struct intel_guc *guc)
+{
+	spin_lock_irq(&guc->irq_lock);
+	guc->msg_enabled_mask &= ~(INTEL_GUC_RECV_MSG_FLUSH_LOG_BUFFER |
+				   INTEL_GUC_RECV_MSG_CRASH_DUMP_POSTED);
+	spin_unlock_irq(&guc->irq_lock);
+}
+
 void intel_guc_log_destroy(struct intel_guc *guc)
 {
 	guc_log_runtime_destroy(guc);
@@ -687,12 +703,7 @@ int intel_guc_log_register(struct intel_guc *guc)
 	if (ret)
 		goto err_runtime;
 
-	/* GuC logging is currently the only user of Guc2Host interrupts */
-	mutex_lock(&dev_priv->drm.struct_mutex);
-	intel_runtime_pm_get(dev_priv);
-	gen9_enable_guc_interrupts(dev_priv);
-	intel_runtime_pm_put(dev_priv);
-	mutex_unlock(&dev_priv->drm.struct_mutex);
+	guc_log_flush_irq_enable(guc);
 
 	return 0;
 
@@ -717,13 +728,9 @@ void intel_guc_log_unregister(struct intel_guc *guc)
 	 * buffer state and then collect the left over logs.
 	 */
 	guc_flush_logs(guc);
+	guc_log_flush_irq_disable(guc);
 
 	mutex_lock(&dev_priv->drm.struct_mutex);
-	/* GuC logging is currently the only user of Guc2Host interrupts */
-	intel_runtime_pm_get(dev_priv);
-	gen9_disable_guc_interrupts(dev_priv);
-	intel_runtime_pm_put(dev_priv);
-
 	guc_log_runtime_destroy(guc);
 	mutex_unlock(&dev_priv->drm.struct_mutex);
 
