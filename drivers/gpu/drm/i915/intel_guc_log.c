@@ -147,43 +147,6 @@ static struct rchan_callbacks relay_callbacks = {
 	.remove_buf_file = remove_buf_file_callback,
 };
 
-static int guc_log_relay_file_create(struct intel_guc *guc)
-{
-	struct drm_i915_private *dev_priv = guc_to_i915(guc);
-	struct dentry *log_dir;
-	int ret;
-
-	lockdep_assert_held(&guc->log.runtime.lock);
-
-	/* For now create the log file in /sys/kernel/debug/dri/0 dir */
-	log_dir = dev_priv->drm.primary->debugfs_root;
-
-	/*
-	 * If /sys/kernel/debug/dri/0 location do not exist, then debugfs is
-	 * not mounted and so can't create the relay file.
-	 * The relay API seems to fit well with debugfs only, for availing relay
-	 * there are 3 requirements which can be met for debugfs file only in a
-	 * straightforward/clean manner :-
-	 * i)   Need the associated dentry pointer of the file, while opening the
-	 *      relay channel.
-	 * ii)  Should be able to use 'relay_file_operations' fops for the file.
-	 * iii) Set the 'i_private' field of file's inode to the pointer of
-	 *	relay channel buffer.
-	 */
-	if (!log_dir) {
-		DRM_ERROR("Debugfs dir not available yet for GuC log file\n");
-		return -ENODEV;
-	}
-
-	ret = relay_late_setup_files(guc->log.runtime.relay_chan, "guc_log", log_dir);
-	if (ret < 0 && ret != -EEXIST) {
-		DRM_ERROR("Couldn't associate relay chan with file %d\n", ret);
-		return ret;
-	}
-
-	return 0;
-}
-
 static void guc_move_to_next_buf(struct intel_guc *guc)
 {
 	/*
@@ -266,7 +229,6 @@ static void guc_read_update_log_buffer(struct intel_guc *guc)
 
 	/* Get the pointer to shared GuC log buffer */
 	log_buf_state = src_data = guc->log.runtime.buf_addr;
-
 
 	/* Get the pointer to local buffer to store the logs */
 	log_buf_snapshot_state = dst_data = guc_get_write_buffer(guc);
@@ -435,8 +397,10 @@ int intel_guc_log_relay_create(struct intel_guc *guc)
 	 * the GuC firmware logs, the channel will be linked with a file
 	 * later on when debugfs is registered.
 	 */
-	guc_log_relay_chan = relay_open(NULL, NULL, subbuf_size,
-					n_subbufs, &relay_callbacks, dev_priv);
+	guc_log_relay_chan = relay_open("guc_log",
+					dev_priv->drm.primary->debugfs_root,
+					subbuf_size, n_subbufs,
+					&relay_callbacks, dev_priv);
 	if (!guc_log_relay_chan) {
 		DRM_ERROR("Couldn't create relay chan for GuC logging\n");
 
@@ -647,18 +611,12 @@ int intel_guc_log_register(struct intel_guc *guc)
 	if (ret)
 		goto err_relay;
 
-	ret = guc_log_relay_file_create(guc);
-	if (ret)
-		goto err_unmap;
-
 	guc_log_flush_irq_enable(guc);
 
 	mutex_unlock(&guc->log.runtime.lock);
 
 	return 0;
 
-err_unmap:
-	guc_log_unmap(guc);
 err_relay:
 	intel_guc_log_relay_destroy(guc);
 err:
