@@ -509,49 +509,6 @@ out_unlock:
 	mutex_unlock(&guc->log.runtime.relay_lock);
 }
 
-static int guc_log_late_setup(struct intel_guc *guc)
-{
-	struct drm_i915_private *dev_priv = guc_to_i915(guc);
-	int ret;
-
-	if (!guc_log_has_runtime(guc)) {
-		/*
-		 * If log was disabled at boot time, then setup needed to handle
-		 * log buffer flush interrupts would not have been done yet, so
-		 * do that now.
-		 */
-		ret = intel_guc_log_relay_create(guc);
-		if (ret)
-			goto err;
-
-		mutex_lock(&dev_priv->drm.struct_mutex);
-		intel_runtime_pm_get(dev_priv);
-		ret = guc_log_runtime_create(guc);
-		intel_runtime_pm_put(dev_priv);
-		mutex_unlock(&dev_priv->drm.struct_mutex);
-
-		if (ret)
-			goto err_relay;
-	}
-
-	ret = guc_log_relay_file_create(guc);
-	if (ret)
-		goto err_runtime;
-
-	return 0;
-
-err_runtime:
-	mutex_lock(&dev_priv->drm.struct_mutex);
-	guc_log_runtime_destroy(guc);
-	mutex_unlock(&dev_priv->drm.struct_mutex);
-err_relay:
-	intel_guc_log_relay_destroy(guc);
-err:
-	/* logging will remain off */
-	i915_modparams.guc_log_level = 0;
-	return ret;
-}
-
 static void guc_log_capture_logs(struct intel_guc *guc)
 {
 	struct drm_i915_private *dev_priv = guc_to_i915(guc);
@@ -570,16 +527,6 @@ static void guc_log_capture_logs(struct intel_guc *guc)
 static void guc_flush_logs(struct intel_guc *guc)
 {
 	struct drm_i915_private *dev_priv = guc_to_i915(guc);
-
-	if (!USES_GUC_SUBMISSION(dev_priv) || !i915_modparams.guc_log_level)
-		return;
-
-	/* First disable the interrupts, will be renabled afterwards */
-	mutex_lock(&dev_priv->drm.struct_mutex);
-	intel_runtime_pm_get(dev_priv);
-	gen9_disable_guc_interrupts(dev_priv);
-	intel_runtime_pm_put(dev_priv);
-	mutex_unlock(&dev_priv->drm.struct_mutex);
 
 	/*
 	 * Before initiating the forceful flush, wait for any pending/ongoing
@@ -623,12 +570,6 @@ int intel_guc_log_create(struct intel_guc *guc)
 
 	guc->log.vma = vma;
 
-	if (i915_modparams.guc_log_level) {
-		ret = guc_log_runtime_create(guc);
-		if (ret < 0)
-			goto err_vma;
-	}
-
 	/* each allocated unit is a page */
 	flags = GUC_LOG_VALID | GUC_LOG_NOTIFY_ON_HALF_FULL |
 		(GUC_LOG_DPC_PAGES << GUC_LOG_DPC_SHIFT) |
@@ -640,8 +581,6 @@ int intel_guc_log_create(struct intel_guc *guc)
 
 	return 0;
 
-err_vma:
-	i915_vma_unpin_and_release(&guc->log.vma);
 err:
 	/* logging will be off */
 	i915_modparams.guc_log_level = 0;
@@ -700,24 +639,14 @@ int intel_guc_log_control_set(struct intel_guc *guc, u64 val)
 	mutex_unlock(&dev_priv->drm.struct_mutex);
 
 	if (GUC_LOG_IS_ENABLED(val) && !guc_log_has_runtime(guc)) {
-		ret = guc_log_late_setup(guc);
-		if (ret)
+		ret = intel_guc_log_register(guc);
+		if (ret) {
+			/* logging will remain off */
+			i915_modparams.guc_log_level = 0;
 			goto out;
-
-		/* GuC logging is currently the only user of Guc2Host interrupts */
-		mutex_lock(&dev_priv->drm.struct_mutex);
-		intel_runtime_pm_get(dev_priv);
-		gen9_enable_guc_interrupts(dev_priv);
-		intel_runtime_pm_put(dev_priv);
-		mutex_unlock(&dev_priv->drm.struct_mutex);
+		}
 	} else if (!GUC_LOG_IS_ENABLED(val) && guc_log_has_runtime(guc)) {
-		/*
-		 * Once logging is disabled, GuC won't generate logs & send an
-		 * interrupt. But there could be some data in the log buffer
-		 * which is yet to be captured. So request GuC to update the log
-		 * buffer state and then collect the left over logs.
-		 */
-		guc_flush_logs(guc);
+		intel_guc_log_unregister(guc);
 	}
 
 	return 0;
@@ -728,20 +657,63 @@ out:
 	return ret;
 }
 
-void i915_guc_log_register(struct drm_i915_private *dev_priv)
+int intel_guc_log_register(struct intel_guc *guc)
 {
-	if (!USES_GUC_SUBMISSION(dev_priv) || !i915_modparams.guc_log_level)
-		return;
+	struct drm_i915_private *dev_priv = guc_to_i915(guc);
+	int ret;
 
-	guc_log_late_setup(&dev_priv->guc);
+	GEM_BUG_ON(guc_log_has_runtime(guc));
+
+	/*
+	 * If log was disabled at boot time, then setup needed to handle
+	 * log buffer flush interrupts would not have been done yet, so
+	 * do that now.
+	 */
+	ret = intel_guc_log_relay_create(guc);
+	if (ret)
+		goto err;
+
+	mutex_lock(&dev_priv->drm.struct_mutex);
+	ret = guc_log_runtime_create(guc);
+	mutex_unlock(&dev_priv->drm.struct_mutex);
+
+	if (ret)
+		goto err_relay;
+
+	ret = guc_log_relay_file_create(guc);
+	if (ret)
+		goto err_runtime;
+
+	/* GuC logging is currently the only user of Guc2Host interrupts */
+	mutex_lock(&dev_priv->drm.struct_mutex);
+	intel_runtime_pm_get(dev_priv);
+	gen9_enable_guc_interrupts(dev_priv);
+	intel_runtime_pm_put(dev_priv);
+	mutex_unlock(&dev_priv->drm.struct_mutex);
+
+	return 0;
+
+err_runtime:
+	mutex_lock(&dev_priv->drm.struct_mutex);
+	guc_log_runtime_destroy(guc);
+	mutex_unlock(&dev_priv->drm.struct_mutex);
+err_relay:
+	intel_guc_log_relay_destroy(guc);
+err:
+	return ret;
 }
 
-void i915_guc_log_unregister(struct drm_i915_private *dev_priv)
+void intel_guc_log_unregister(struct intel_guc *guc)
 {
-	struct intel_guc *guc = &dev_priv->guc;
+	struct drm_i915_private *dev_priv = guc_to_i915(guc);
 
-	if (!USES_GUC_SUBMISSION(dev_priv))
-		return;
+	/*
+	 * Once logging is disabled, GuC won't generate logs & send an
+	 * interrupt. But there could be some data in the log buffer
+	 * which is yet to be captured. So request GuC to update the log
+	 * buffer state and then collect the left over logs.
+	 */
+	guc_flush_logs(guc);
 
 	mutex_lock(&dev_priv->drm.struct_mutex);
 	/* GuC logging is currently the only user of Guc2Host interrupts */

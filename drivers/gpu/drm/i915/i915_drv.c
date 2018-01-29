@@ -626,7 +626,7 @@ static void i915_gem_fini(struct drm_i915_private *dev_priv)
 	i915_gem_contexts_fini(dev_priv);
 	mutex_unlock(&dev_priv->drm.struct_mutex);
 
-	intel_uc_fini_misc(dev_priv);
+	intel_uc_fini_wq(dev_priv);
 	i915_gem_cleanup_userptr(dev_priv);
 
 	i915_gem_drain_freed_objects(dev_priv);
@@ -1230,7 +1230,7 @@ static void i915_driver_register(struct drm_i915_private *dev_priv)
 	/* Reveal our presence to userspace */
 	if (drm_dev_register(dev, 0) == 0) {
 		i915_debugfs_register(dev_priv);
-		i915_guc_log_register(dev_priv);
+		intel_uc_log_register(dev_priv);
 		i915_setup_sysfs(dev_priv);
 
 		/* Depends on sysfs having been initialized */
@@ -1290,7 +1290,7 @@ static void i915_driver_unregister(struct drm_i915_private *dev_priv)
 	i915_pmu_unregister(dev_priv);
 
 	i915_teardown_sysfs(dev_priv);
-	i915_guc_log_unregister(dev_priv);
+	intel_uc_log_unregister(dev_priv);
 	drm_dev_unregister(&dev_priv->drm);
 
 	i915_gem_shrinker_unregister(dev_priv);
