@@ -219,28 +219,6 @@ static void guc_free_load_err_log(struct intel_guc *guc)
 		i915_gem_object_put(guc->load_err_log);
 }
 
-int intel_uc_log_register(struct drm_i915_private *dev_priv)
-{
-	int ret = 0;
-
-	if (!USES_GUC(dev_priv))
-		return 0;
-
-	if (i915_modparams.guc_log_level)
-		ret = intel_guc_log_register(&dev_priv->guc);
-
-	return ret;
-}
-
-void intel_uc_log_unregister(struct drm_i915_private *dev_priv)
-{
-	if (!USES_GUC(dev_priv))
-		return;
-
-	if (i915_modparams.guc_log_level)
-		intel_guc_log_unregister(&dev_priv->guc);
-}
-
 static int guc_enable_communication(struct intel_guc *guc)
 {
 	struct drm_i915_private *dev_priv = guc_to_i915(guc);

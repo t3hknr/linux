@@ -508,7 +508,7 @@ void intel_guc_log_destroy(struct intel_guc *guc)
 	i915_vma_unpin_and_release(&guc->log.vma);
 }
 
-int intel_guc_log_control_get(struct intel_guc *guc)
+int intel_guc_log_level_get(struct intel_guc *guc)
 {
 	GEM_BUG_ON(!guc->log.vma);
 	GEM_BUG_ON(i915_modparams.guc_log_level < 0);
@@ -518,7 +518,7 @@ int intel_guc_log_control_get(struct intel_guc *guc)
 
 #define GUC_LOG_IS_ENABLED(x)		(x > 0)
 #define GUC_LOG_LEVEL_TO_VERBOSITY(x)	(GUC_LOG_IS_ENABLED(x) ? x - 1 : 0)
-int intel_guc_log_control_set(struct intel_guc *guc, u64 val)
+int intel_guc_log_level_set(struct intel_guc *guc, u64 val)
 {
 	struct drm_i915_private *dev_priv = guc_to_i915(guc);
 	int ret;
@@ -535,7 +535,7 @@ int intel_guc_log_control_set(struct intel_guc *guc, u64 val)
 	    GUC_LOG_LEVEL_TO_VERBOSITY(val) > GUC_LOG_VERBOSITY_MAX)
 		return -EINVAL;
 
-	mutex_lock(&dev_priv->drm.struct_mutex);
+	mutex_lock(&guc->log.runtime.lock);
 
 	if (i915_modparams.guc_log_level == val) {
 		ret = 0;
@@ -551,67 +551,55 @@ int intel_guc_log_control_set(struct intel_guc *guc, u64 val)
 
 	i915_modparams.guc_log_level = val;
 
-	mutex_unlock(&dev_priv->drm.struct_mutex);
-
-	if (GUC_LOG_IS_ENABLED(val) && !guc_log_has_runtime(guc)) {
-		ret = intel_guc_log_register(guc);
-		if (ret) {
-			/* logging will remain off */
-			i915_modparams.guc_log_level = 0;
-			goto out;
-		}
-	} else if (!GUC_LOG_IS_ENABLED(val) && guc_log_has_runtime(guc)) {
-		intel_guc_log_unregister(guc);
-	}
-
-	return 0;
-
 out_unlock:
-	mutex_unlock(&dev_priv->drm.struct_mutex);
-out:
+	mutex_unlock(&guc->log.runtime.lock);
+
 	return ret;
 }
 
-int intel_guc_log_register(struct intel_guc *guc)
+int intel_guc_log_relay_open(struct intel_guc *guc)
 {
 	int ret;
 
 	mutex_lock(&guc->log.runtime.lock);
 
-	GEM_BUG_ON(guc_log_has_runtime(guc));
+	if (guc_log_has_runtime(guc)) {
+		ret = -EEXIST;
+		goto out_unlock;
+	}
 
-	/*
-	 * If log was disabled at boot time, then setup needed to handle
-	 * log buffer flush interrupts would not have been done yet, so
-	 * do that now.
-	 */
 	ret = guc_log_relay_create(guc);
 	if (ret)
-		goto err;
+		goto out_unlock;
 
 	ret = guc_log_map(guc);
 	if (ret)
-		goto err_relay;
-
-	guc_log_flush_irq_enable(guc);
+		goto out_relay;
 
 	mutex_unlock(&guc->log.runtime.lock);
 
+	guc_log_flush_irq_enable(guc);
+
+	/*
+	 * When GuC is logging without us relaying to userspace, we're ignoring
+	 * the flush notification. This means that we need to unconditionally
+	 * flush on relay enabling, since GuC only notifies us once.
+	 */
+	queue_work(guc->log.runtime.flush_wq, &guc->log.runtime.flush_work);
+
 	return 0;
 
-err_relay:
+out_relay:
 	guc_log_relay_destroy(guc);
-err:
+out_unlock:
 	mutex_unlock(&guc->log.runtime.lock);
 
 	return ret;
 }
 
-void intel_guc_log_unregister(struct intel_guc *guc)
+void intel_guc_log_relay_flush(struct intel_guc *guc)
 {
 	struct drm_i915_private *dev_priv = guc_to_i915(guc);
-
-	guc_log_flush_irq_disable(guc);
 
 	/*
 	 * Before initiating the forceful flush, wait for any pending/ongoing
@@ -619,25 +607,25 @@ void intel_guc_log_unregister(struct intel_guc *guc)
 	 */
 	flush_work(&guc->log.runtime.flush_work);
 
-	/*
-	 * Once logging is disabled, GuC won't generate logs & send an
-	 * interrupt. But there could be some data in the log buffer
-	 * which is yet to be captured. So request GuC to update the log
-	 * buffer state and then collect the left over logs.
-	 */
 	intel_runtime_pm_get(dev_priv);
 	guc_log_flush(guc);
 	intel_runtime_pm_put(dev_priv);
 
+	mutex_lock(&guc->log.runtime.lock);
 	/* GuC would have updated log buffer by now, so capture it */
 	guc_log_capture_logs(guc);
+	mutex_unlock(&guc->log.runtime.lock);
+}
 
-	mutex_lock(&guc->log.runtime.lock);
-
+void intel_guc_log_relay_close(struct intel_guc *guc)
+{
 	GEM_BUG_ON(!guc_log_has_runtime(guc));
 
+	guc_log_flush_irq_disable(guc);
+	flush_work(&guc->log.runtime.flush_work);
+
+	mutex_lock(&guc->log.runtime.lock);
 	guc_log_unmap(guc);
 	guc_log_relay_destroy(guc);
-
 	mutex_unlock(&guc->log.runtime.lock);
 }
