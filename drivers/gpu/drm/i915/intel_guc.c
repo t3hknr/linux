@@ -87,9 +87,9 @@ int intel_guc_init_wq(struct intel_guc *guc)
 	 * or scheduled later on resume. This way the handling of work
 	 * item can be kept same between system suspend & rpm suspend.
 	 */
-	guc->log.runtime.flush_wq = alloc_ordered_workqueue("i915-guc_log",
+	guc->log.flush_wq = alloc_ordered_workqueue("i915-guc_log",
 						WQ_HIGHPRI | WQ_FREEZABLE);
-	if (!guc->log.runtime.flush_wq) {
+	if (!guc->log.flush_wq) {
 		DRM_ERROR("Couldn't allocate workqueue for GuC log\n");
 		return -ENOMEM;
 	}
@@ -112,7 +112,7 @@ int intel_guc_init_wq(struct intel_guc *guc)
 		guc->preempt_wq = alloc_ordered_workqueue("i915-guc_preempt",
 							  WQ_HIGHPRI);
 		if (!guc->preempt_wq) {
-			destroy_workqueue(guc->log.runtime.flush_wq);
+			destroy_workqueue(guc->log.flush_wq);
 			DRM_ERROR("Couldn't allocate workqueue for GuC "
 				  "preemption\n");
 			return -ENOMEM;
@@ -130,7 +130,7 @@ void intel_guc_fini_wq(struct intel_guc *guc)
 	    USES_GUC_SUBMISSION(dev_priv))
 		destroy_workqueue(guc->preempt_wq);
 
-	destroy_workqueue(guc->log.runtime.flush_wq);
+	destroy_workqueue(guc->log.flush_wq);
 }
 
 static int guc_shared_data_create(struct intel_guc *guc)
@@ -389,8 +389,8 @@ void intel_guc_notification_handler(struct intel_guc *guc)
 
 	if (msg & (INTEL_GUC_RECV_MSG_FLUSH_LOG_BUFFER |
 		   INTEL_GUC_RECV_MSG_CRASH_DUMP_POSTED)) {
-		queue_work(guc->log.runtime.flush_wq,
-			   &guc->log.runtime.flush_work);
+		queue_work(guc->log.flush_wq,
+			   &guc->log.flush_work);
 
 		guc->log.flush_interrupt_count++;
 	}
