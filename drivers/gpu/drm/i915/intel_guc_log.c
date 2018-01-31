@@ -451,16 +451,6 @@ int intel_guc_log_create(struct intel_guc *guc)
 
 	GEM_BUG_ON(guc->log.vma);
 
-	/*
-	 * We require SSE 4.1 for fast reads from the GuC log buffer and
-	 * it should be present on the chipsets supporting GuC based
-	 * submisssions.
-	 */
-	if (WARN_ON(!i915_has_memcpy_from_wc())) {
-		ret = -EINVAL;
-		goto err;
-	}
-
 	vma = intel_guc_allocate_vma(guc, GUC_LOG_SIZE);
 	if (IS_ERR(vma)) {
 		ret = PTR_ERR(vma);
@@ -564,6 +554,16 @@ int intel_guc_log_relay_open(struct intel_guc *guc)
 
 	if (guc_log_has_runtime(guc)) {
 		ret = -EEXIST;
+		goto out_unlock;
+	}
+
+	/*
+	 * We require SSE 4.1 for fast reads from the GuC log buffer and
+	 * it should be present on the chipsets supporting GuC based
+	 * submisssions.
+	 */
+	if (!i915_has_memcpy_from_wc()) {
+		ret = -EINVAL;
 		goto out_unlock;
 	}
 
