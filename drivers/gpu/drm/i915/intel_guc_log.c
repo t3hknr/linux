@@ -58,11 +58,13 @@ static int guc_log_flush(struct intel_guc *guc)
 	return intel_guc_send(guc, action, ARRAY_SIZE(action));
 }
 
-static int guc_log_control(struct intel_guc *guc, bool enable, u32 verbosity)
+static int guc_log_control(struct intel_guc *guc, bool enable, bool critical,
+			   u32 verbosity)
 {
 	union guc_log_control control_val = {
 		.logging_enabled = enable,
 		.verbosity = verbosity,
+		.critical = critical,
 	};
 	u32 action[] = {
 		INTEL_GUC_ACTION_UK_LOG_ENABLE_LOGGING,
@@ -506,8 +508,6 @@ int intel_guc_log_level_get(struct intel_guc *guc)
 	return i915_modparams.guc_log_level;
 }
 
-#define GUC_LOG_IS_ENABLED(x)		(x > 0)
-#define GUC_LOG_LEVEL_TO_VERBOSITY(x)	(GUC_LOG_IS_ENABLED(x) ? x - 1 : 0)
 int intel_guc_log_level_set(struct intel_guc *guc, u64 val)
 {
 	struct drm_i915_private *dev_priv = guc_to_i915(guc);
@@ -533,7 +533,8 @@ int intel_guc_log_level_set(struct intel_guc *guc, u64 val)
 	}
 
 	intel_runtime_pm_get(dev_priv);
-	ret = guc_log_control(guc, GUC_LOG_IS_ENABLED(val),
+	ret = guc_log_control(guc, GUC_LOG_IS_VERBOSE(val),
+			      GUC_LOG_IS_ENABLED(val),
 			      GUC_LOG_LEVEL_TO_VERBOSITY(val));
 	intel_runtime_pm_put(dev_priv);
 	if (ret)

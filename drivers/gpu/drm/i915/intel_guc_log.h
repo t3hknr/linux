@@ -39,6 +39,17 @@ struct intel_guc;
 #define GUC_LOG_SIZE	((1 + GUC_LOG_DPC_PAGES + 1 + GUC_LOG_ISR_PAGES + \
 			  1 + GUC_LOG_CRASH_PAGES + 1) << PAGE_SHIFT)
 
+/*
+ * While we're using plain log level in i915, GuC controls are much more...
+ * "elaborate"? We have a couple of bits for verbosity, separate bit for actual
+ * log enabling, and separate bit for critical logging - which "conveniently"
+ * ignores the enable bit.
+ */
+#define GUC_LOG_IS_ENABLED(x)		(x > 0)
+#define GUC_LOG_IS_VERBOSE(x)		(x > 1)
+#define GUC_LOG_LEVEL_TO_VERBOSITY(x)	(GUC_LOG_IS_VERBOSE(x) ? x - 2 : 0)
+#define GUC_LOG_VERBOSITY_TO_LEVEL(x)	(x + 2)
+
 struct intel_guc_log {
 	u32 flags;
 	struct i915_vma *vma;
