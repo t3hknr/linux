@@ -928,8 +928,8 @@ static int i915_driver_init_early(struct drm_i915_private *dev_priv,
 	/* This must be called before any calls to HAS_PCH_* */
 	intel_detect_pch(dev_priv);
 
-	intel_wopcm_init_early(&dev_priv->wopcm);
 	intel_uc_init_early(dev_priv);
+	intel_wopcm_init_early(&dev_priv->wopcm);
 	intel_pm_setup(dev_priv);
 	intel_init_dpio(dev_priv);
 	intel_power_domains_init(dev_priv);
