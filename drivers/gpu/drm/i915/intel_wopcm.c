@@ -165,18 +165,6 @@ int intel_wopcm_init(struct intel_wopcm *wopcm)
 
 	GEM_BUG_ON(!wopcm->size);
 
-	if (guc_fw_size >= wopcm->size) {
-		DRM_ERROR("GuC FW (%uKiB) is too big to fit in WOPCM.",
-			  guc_fw_size / 1024);
-		return -E2BIG;
-	}
-
-	if (huc_fw_size >= wopcm->size) {
-		DRM_ERROR("HuC FW (%uKiB) is too big to fit in WOPCM.",
-			  huc_fw_size / 1024);
-		return -E2BIG;
-	}
-
 	guc_wopcm_base = ALIGN(huc_fw_size + WOPCM_RESERVED_SIZE,
 			       GUC_WOPCM_OFFSET_ALIGNMENT);
 	if ((guc_wopcm_base + ctx_rsvd) >= wopcm->size) {
