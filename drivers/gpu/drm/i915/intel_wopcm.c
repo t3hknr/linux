@@ -62,6 +62,9 @@
 /* 128KB from GUC_WOPCM_RESERVED is reserved for FW on Gen9. */
 #define GEN9_GUC_FW_RESERVED	(128 * 1024)
 #define GEN9_GUC_WOPCM_OFFSET	(GUC_WOPCM_RESERVED + GEN9_GUC_FW_RESERVED)
+/* 256KB from GUC_WOPCM_RESERVED is reserved for FW on Gen10. */
+#define GEN10_GUC_FW_RESERVED	(256 * 1024)
+#define GEN10_GUC_WOPCM_OFFSET	(GUC_WOPCM_RESERVED + GEN10_GUC_FW_RESERVED)
 
 /**
  * intel_wopcm_init_early() - Early initialization of the WOPCM.
@@ -89,58 +92,79 @@ static inline u32 context_reserved_size(struct drm_i915_private *i915)
 		return 0;
 }
 
-static inline int gen9_check_dword_gap(u32 guc_wopcm_base, u32 guc_wopcm_size)
+static u32
+additional_size_for_dword_gap_restriction(struct drm_i915_private *i915,
+					  u32 guc_wopcm_base,
+					  u32 guc_wopcm_size)
 {
-	u32 offset;
+	s32 additional_size = 0;
+	u32 wopcm_offset;
+
+	if (INTEL_GEN(i915) >= 10)
+		wopcm_offset = GEN10_GUC_WOPCM_OFFSET;
+	else
+		wopcm_offset = GEN9_GUC_WOPCM_OFFSET;
 
 	/*
 	 * GuC WOPCM size shall be at least a dword larger than the offset from
-	 * WOPCM base (GuC WOPCM offset from WOPCM base + GEN9_GUC_WOPCM_OFFSET)
+	 * WOPCM base (GuC WOPCM offset from WOPCM base + GUC_WOPCM_OFFSET)
 	 * due to hardware limitation on Gen9.
 	 */
-	offset = guc_wopcm_base + GEN9_GUC_WOPCM_OFFSET;
-	if (offset > guc_wopcm_size ||
-	    (guc_wopcm_size - offset) < sizeof(u32)) {
-		DRM_ERROR("GuC WOPCM size %uKiB is too small. %uKiB needed.\n",
-			  guc_wopcm_size / 1024,
-			  (u32)(offset + sizeof(u32)) / 1024);
-		return -E2BIG;
-	}
+	if (IS_GEN9(i915) || IS_CNL_REVID(i915, CNL_REVID_A0, CNL_REVID_A0))
+		additional_size = guc_wopcm_base + wopcm_offset +
+				  sizeof(u32) - guc_wopcm_size;
 
-	return 0;
+	if (additional_size < 0)
+		additional_size = 0;
+
+	return additional_size;
 }
 
-static inline int gen9_check_huc_fw_fits(u32 guc_wopcm_size, u32 huc_fw_size)
+static u32
+additional_size_for_huc_restriction(struct drm_i915_private *i915,
+				    u32 guc_wopcm_size, u32 huc_fw_size)
 {
+	s32 additional_size = 0;
+
 	/*
 	 * On Gen9 & CNL A0, hardware requires the total available GuC WOPCM
 	 * size to be larger than or equal to HuC firmware size. Otherwise,
 	 * firmware uploading would fail.
 	 */
-	if (huc_fw_size > guc_wopcm_size - GUC_WOPCM_RESERVED) {
-		DRM_ERROR("HuC FW (%uKiB) won't fit in GuC WOPCM (%uKiB).\n",
-			  huc_fw_size / 1024,
-			  (guc_wopcm_size - GUC_WOPCM_RESERVED) / 1024);
-		return -E2BIG;
-	}
+	if (IS_GEN9(i915) || IS_CNL_REVID(i915, CNL_REVID_A0, CNL_REVID_A0))
+		additional_size = huc_fw_size -
+				  (guc_wopcm_size - GUC_WOPCM_RESERVED);
 
-	return 0;
+	if (additional_size < 0)
+		additional_size = 0;
+
+	return additional_size;
 }
 
 static inline int check_hw_restriction(struct drm_i915_private *i915,
 				       u32 guc_wopcm_base, u32 guc_wopcm_size,
 				       u32 huc_fw_size)
 {
-	int err = 0;
+	u32 size;
 
-	if (IS_GEN9(i915))
-		err = gen9_check_dword_gap(guc_wopcm_base, guc_wopcm_size);
+	size = additional_size_for_dword_gap_restriction(i915, guc_wopcm_base,
+							 guc_wopcm_size);
+	if (size)
+		goto err;
 
-	if (!err &&
-	    (IS_GEN9(i915) || IS_CNL_REVID(i915, CNL_REVID_A0, CNL_REVID_A0)))
-		err = gen9_check_huc_fw_fits(guc_wopcm_size, huc_fw_size);
+	size = additional_size_for_huc_restriction(i915, guc_wopcm_size,
+						   huc_fw_size);
+	if (size)
+		goto err;
 
-	return err;
+	return 0;
+
+err:
+	DRM_ERROR("GuC WOPCM size %uKiB is too small. %uKiB more needed.\n",
+		  guc_wopcm_size / 1024,
+		  size / 1024);
+
+	return -E2BIG;
 }
 
 /**
