@@ -71,6 +71,9 @@
  */
 void intel_wopcm_init_early(struct intel_wopcm *wopcm)
 {
+	if (!HAS_GUC(wopcm_to_i915(wopcm)))
+		return;
+
 	wopcm->size = GEN9_WOPCM_SIZE;
 
 	DRM_DEBUG_DRIVER("WOPCM size: %uKiB\n", wopcm->size / 1024);
@@ -163,6 +166,9 @@ int intel_wopcm_init(struct intel_wopcm *wopcm)
 	u32 guc_wopcm_rsvd;
 	int err;
 
+	if (!HAS_GUC(i915) || !USES_GUC(i915))
+		return 0;
+
 	GEM_BUG_ON(!wopcm->size);
 
 	guc_wopcm_base = ALIGN(huc_fw_size + WOPCM_RESERVED_SIZE,
@@ -230,10 +236,9 @@ int intel_wopcm_init_hw(struct intel_wopcm *wopcm)
 	u32 mask;
 	int err;
 
-	if (!USES_GUC(dev_priv))
+	if (!HAS_GUC(dev_priv) || !USES_GUC(dev_priv))
 		return 0;
 
-	GEM_BUG_ON(!HAS_GUC(dev_priv));
 	GEM_BUG_ON(!wopcm->guc.size);
 	GEM_BUG_ON(!wopcm->guc.base);
 
