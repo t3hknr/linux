@@ -88,9 +88,9 @@ static inline u32 huc_fw_size_in_wopcm(u32 huc_fw_size)
 }
 
 static u32
-additional_size_for_dword_gap_restriction(struct drm_i915_private *i915,
-					  u32 guc_wopcm_base,
-					  u32 guc_wopcm_size)
+__additional_size_for_dword_gap(struct drm_i915_private *i915,
+				u32 guc_wopcm_base,
+				u32 guc_wopcm_size)
 {
 	s32 additional_size = 0;
 	u32 wopcm_offset;
@@ -116,8 +116,8 @@ additional_size_for_dword_gap_restriction(struct drm_i915_private *i915,
 }
 
 static u32
-additional_size_for_huc_restriction(struct drm_i915_private *i915,
-				    u32 guc_wopcm_size, u32 huc_fw_size)
+__additional_size_for_huc(struct drm_i915_private *i915,
+			  u32 guc_wopcm_size, u32 huc_fw_size)
 {
 	s32 additional_size = 0;
 
@@ -136,45 +136,66 @@ additional_size_for_huc_restriction(struct drm_i915_private *i915,
 	return additional_size;
 }
 
-static int wopcm_check_hw_restrictions(struct intel_wopcm *wopcm)
+static u32
+additional_size_for_hw_restrictions(struct drm_i915_private *i915,
+				    u32 guc_wopcm_base, u32 guc_wopcm_size,
+				    u32 huc_fw_size)
+{
+	u32 gap_size, huc_size;
+
+	gap_size = __additional_size_for_dword_gap(i915, guc_wopcm_base,
+						   guc_wopcm_size);
+
+	huc_size = __additional_size_for_huc(i915, guc_wopcm_size, huc_fw_size);
+
+	return max(gap_size, huc_size);
+}
+
+static inline void
+__guc_region_grow(struct intel_wopcm *wopcm, u32 size)
+{
+	/*
+	 * We're growing guc region in the direction of lower addresses.
+	 * We need to use multiples of base alignment, because it has more
+	 * strict alignment rules.
+	 */
+	size = DIV_ROUND_UP(size, 2);
+	size = ALIGN(size, GUC_WOPCM_OFFSET_ALIGNMENT);
+
+	wopcm->guc.base -= size;
+	wopcm->guc.size += size;
+}
+
+static void wopcm_adjust_for_hw_restrictions(struct intel_wopcm *wopcm)
 {
 	struct drm_i915_private *i915 = wopcm_to_i915(wopcm);
 	u32 huc_fw_size = intel_uc_fw_get_upload_size(&i915->huc.fw);
 	u32 size;
 
-	size = additional_size_for_dword_gap_restriction(i915, wopcm->guc.base,
-							 wopcm->guc.size);
-	if (size)
-		goto err;
+	GEM_BUG_ON(!wopcm->guc.base);
+	GEM_BUG_ON(!wopcm->guc.size);
 
-	size = additional_size_for_huc_restriction(i915, wopcm->guc.size,
+	size = additional_size_for_hw_restrictions(i915, wopcm->guc.base,
+						   wopcm->guc.size,
 						   huc_fw_size);
-	if (size)
-		goto err;
 
-	return 0;
-
-err:
-	DRM_ERROR("GuC WOPCM size %uKiB is too small. %uKiB more needed.\n",
-		  wopcm->guc.size / 1024,
-		  size / 1024);
-
-	return -E2BIG;
+	__guc_region_grow(wopcm, size);
 }
 
 static void wopcm_guc_region_init(struct intel_wopcm *wopcm)
 {
 	struct drm_i915_private *dev_priv = wopcm_to_i915(wopcm);
-	u32 huc_fw_size = intel_uc_fw_get_upload_size(&dev_priv->huc.fw);
+	u32 guc_fw_size = intel_uc_fw_get_upload_size(&dev_priv->guc.fw);
 	u32 ctx_rsvd = context_reserved_size(dev_priv);
 
 	GEM_BUG_ON(!wopcm->size);
 
-	wopcm->guc.base = ALIGN(huc_fw_size_in_wopcm(huc_fw_size),
-				GUC_WOPCM_OFFSET_ALIGNMENT);
+	wopcm->guc.size = guc_fw_size_in_wopcm(guc_fw_size);
 
-	wopcm->guc.size = ALIGN(wopcm->size - wopcm->guc.base - ctx_rsvd,
-				PAGE_SIZE);
+	wopcm->guc.base = ALIGN_DOWN(wopcm->size - wopcm->guc.size - ctx_rsvd,
+				     GUC_WOPCM_OFFSET_ALIGNMENT);
+
+	wopcm_adjust_for_hw_restrictions(wopcm);
 }
 
 /**
@@ -276,10 +297,6 @@ int intel_wopcm_init(struct intel_wopcm *wopcm)
 
 	if (!wopcm->size)
 		return 0;
-
-	err = wopcm_check_hw_restrictions(wopcm);
-	if (err)
-		return err;
 
 	err = wopcm_check_components_fit(wopcm);
 	if (err)
